@@ -71,79 +71,102 @@ def initialize_currents(model, polygon_ids, magnitude, bearing_degrees):
 # ------------------------
 # Function: Propagate Eulerian Flow (Simplified Update)
 # ------------------------
-
 def propagate_eulerian_flow(model, beta=0.95, alpha=0.3, nu=0.1, delta_x=1.0, delta_t=0.1):
     """
-    A simplified Eulerian update for the flow field. For each non-source cell, the function calculates:
-      - An advective flux (using an upwind-like idea)
-      - A diffusive term (using a finite-difference Laplacian)
-    and then updates the cell's velocity using a simple Euler time-stepping.
+    A simplified Eulerian update for the flow field with explicit bounce (reflection)
+    conditions at any cell edge that does not have a neighbor.
     
-    Parameters:
-        beta: Scales the neighbor contribution in the advective term.
-        alpha: Blending factor for the current cell's velocity.
-        nu: Viscosity/diffusion coefficient.
-        delta_x: Cell width (assumed constant).
-        delta_t: Time step.
+    For each non-source cell:
+      - Compute advective and diffusive terms as before.
+      - Then, for each edge (left, right, bottom, top), if no neighbor exists there
+        and the cell's updated velocity is directed outwards, reflect that component
+        (reducing it to 10% of its value).
     """
     new_fields = {}  # Dictionary to store updated field values for each agent
+    tol = 1e-6  # Tolerance for comparing floating-point bounds
 
     for agent in model.polygons:
-        # Skip updating if this is a source cell.
+        # Skip source cells so they maintain a constant flow.
         if agent.source:
             continue
-
         if not agent.neighbors:
             continue  # Skip isolated cells
 
-        # ADVECTIVE TERM (Simplified)
-        # For simplicity, take an average of neighbor velocities as a proxy for advective flux.
+        # ------------------------
+        # Compute Advective Term (Simplified)
+        # ------------------------
         sum_vx_adv, sum_vy_adv = 0.0, 0.0
         count_adv = 0
-
         for neighbor in agent.neighbors:
             # Consider only neighbors with nonzero flow.
             if neighbor.fields["velocity_x"] != 0.0 or neighbor.fields["velocity_y"] != 0.0:
                 sum_vx_adv += neighbor.fields["velocity_x"]
                 sum_vy_adv += neighbor.fields["velocity_y"]
                 count_adv += 1
+        advective_vx = beta * (sum_vx_adv / count_adv) if count_adv > 0 else 0.0
+        advective_vy = beta * (sum_vy_adv / count_adv) if count_adv > 0 else 0.0
 
-        advective_vx = 0.0
-        advective_vy = 0.0
-        if count_adv > 0:
-            avg_vx_adv = sum_vx_adv / count_adv
-            avg_vy_adv = sum_vy_adv / count_adv
-            # This term mimics the transport of momentum from neighbors.
-            advective_vx = beta * avg_vx_adv
-            advective_vy = beta * avg_vy_adv
-
-        # DIFFUSIVE TERM (Finite-Difference Laplacian)
+        # ------------------------
+        # Compute Diffusive Term (Finite-Difference Laplacian)
+        # ------------------------
         sum_vx_diff, sum_vy_diff = 0.0, 0.0
         count_diff = len(agent.neighbors)
         for neighbor in agent.neighbors:
             sum_vx_diff += neighbor.fields["velocity_x"]
             sum_vy_diff += neighbor.fields["velocity_y"]
-
         if count_diff > 0:
             avg_vx_diff = sum_vx_diff / count_diff
             avg_vy_diff = sum_vy_diff / count_diff
         else:
             avg_vx_diff = agent.fields["velocity_x"]
             avg_vy_diff = agent.fields["velocity_y"]
-
         diffusive_vx = nu * ((avg_vx_diff - agent.fields["velocity_x"]) / (delta_x**2))
         diffusive_vy = nu * ((avg_vy_diff - agent.fields["velocity_y"]) / (delta_x**2))
 
-        # Combine current velocity with advective and diffusive contributions.
+        # ------------------------
+        # Combine Terms to Update Velocity (Euler Step)
+        # ------------------------
         new_vx = agent.fields["velocity_x"] + delta_t * (-advective_vx + diffusive_vx)
         new_vy = agent.fields["velocity_y"] + delta_t * (-advective_vy + diffusive_vy)
 
+        # ------------------------
+        # Bounce (Reflection) Conditions Based on Missing Neighbors
+        # ------------------------
+        # Get the cell's bounding box.
+        cell_minx, cell_miny, cell_maxx, cell_maxy = agent.geometry.bounds
+
+        # Determine for each edge if a neighbor exists.
+        has_left  = any(abs(neighbor.geometry.bounds[2] - cell_minx) < tol for neighbor in agent.neighbors)
+        has_right = any(abs(neighbor.geometry.bounds[0] - cell_maxx) < tol for neighbor in agent.neighbors)
+        has_bottom = any(abs(neighbor.geometry.bounds[3] - cell_miny) < tol for neighbor in agent.neighbors)
+        has_top   = any(abs(neighbor.geometry.bounds[1] - cell_maxy) < tol for neighbor in agent.neighbors)
+
+        # Bounce left edge if missing neighbor and velocity is outward.
+        if (not has_left) and new_vx < 0:
+            new_vx = -0.5 * new_vx
+
+        # Bounce right edge if missing neighbor and velocity is outward.
+        if (not has_right) and new_vx > 0:
+            new_vx = -0.5 * new_vx
+
+        # Bounce bottom edge if missing neighbor and velocity is outward.
+        if (not has_bottom) and new_vy < 0:
+            new_vy = -0.5 * new_vy
+
+        # Bounce top edge if missing neighbor and velocity is outward.
+        if (not has_top) and new_vy > 0:
+            new_vy = -0.5 * new_vy
+
         new_fields[agent] = {"velocity_x": new_vx, "velocity_y": new_vy}
 
-    # Apply updates simultaneously.
+    # ------------------------
+    # Update all agents simultaneously with the new velocities.
+    # ------------------------
     for agent, new_vals in new_fields.items():
         agent.fields["velocity_x"] = new_vals["velocity_x"]
         agent.fields["velocity_y"] = new_vals["velocity_y"]
+
+
 
 # ------------------------
 # Agent Class: FlowPolygonAgent (Each Tile)
@@ -237,7 +260,7 @@ def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1):
     
     ax.quiver(
         x_coords, y_coords, flow_x, flow_y,
-        angles="xy", scale_units="xy", scale=1,
+        angles="xy", scale_units="inches", scale=1e10,
         color="blue", width=0.005, headwidth=5
     )
     plt.title("Eulerian Flow Field in Malpeque Bay (Scaled)")
@@ -269,8 +292,10 @@ polygon_ids_to_initialize = {pid - 511 for pid in polygon_ids_to_initialize}
 initialize_currents(model, polygon_ids_to_initialize, magnitude=1.6, bearing_degrees=140)
 
 # Advance the model several steps to propagate the flow.
-for _ in tqdm(range(1000)):
+for i in tqdm(range(50)):
     model.step()
 
-# Visualize the resulting Eulerian flow field.
+
 plot_flow_vectors(model)
+
+# Visualize the resulting Eulerian flow field.
