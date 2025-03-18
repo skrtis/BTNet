@@ -6,6 +6,7 @@ from shapely.geometry import shape
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from pathlib import Path
+from tqdm import tqdm
 
 # ------------------------
 # Load GeoJSON Data
@@ -14,7 +15,6 @@ from pathlib import Path
 geojson_path = "malpeque_tiles.geojson"  # Local file
 with open(geojson_path, "r", encoding="utf-8") as f:
     geojson_data = json.load(f)
-print(f"Total Polygons in GeoJSON: {len(geojson_data['features'])}")
 
 # ------------------------
 # Utility Function: Compute Shared Edges using Shapely Intersection
@@ -34,6 +34,8 @@ def compute_shared_edges(agents):
                 # Consider only intersections that yield a line (shared edge), not a point.
                 if inter and inter.geom_type in ['LineString', 'MultiLineString']:
                     polygon.neighbors.append(neighbor)
+
+
 
 # ------------------------
 # Function: Initialize Flow in Specific Tiles (Source Cells)
@@ -209,7 +211,7 @@ class FlowModel(mesa.Model):
 # Visualization Function: Plot Flow Vectors
 # ------------------------
 
-def plot_flow_vectors(model, scale_factor=1000, arrow_spacing=1):
+def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1):
     """
     Visualizes the flow field by plotting arrows (using a quiver plot) over the tile polygons.
     The arrow lengths are scaled for visualization.
@@ -267,7 +269,7 @@ polygon_ids_to_initialize = {pid - 511 for pid in polygon_ids_to_initialize}
 initialize_currents(model, polygon_ids_to_initialize, magnitude=1.6, bearing_degrees=140)
 
 # Advance the model several steps to propagate the flow.
-for _ in range(5):
+for _ in tqdm(range(1000)):
     model.step()
 
 # Visualize the resulting Eulerian flow field.
