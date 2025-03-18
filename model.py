@@ -331,5 +331,4 @@ model = FlowModel(geojson_test_path)
 for _ in tqdm(range(500)):
     model.step()
 
-plot_flow_vectors(model,scaler=1e12)
-plot_flow_vectors(model,scaler=1e13)
+plot_flow_vectors(model,scaler=5e12)
