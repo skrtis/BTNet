@@ -7,6 +7,8 @@ import geopandas as gpd
 import matplotlib.pyplot as plt
 from pathlib import Path
 from tqdm import tqdm
+import pickle
+import os
 
 # ------------------------
 # Load GeoJSON Data
@@ -15,6 +17,7 @@ from tqdm import tqdm
 geojson_path = "malpeque_tiles.geojson"  # Local file
 with open(geojson_path, "r", encoding="utf-8") as f:
     geojson_data = json.load(f)
+print(f"Total Polygons in GeoJSON: {len(geojson_data['features'])}")
 
 # ------------------------
 # Utility Function: Compute Shared Edges using Shapely Intersection
@@ -34,8 +37,6 @@ def compute_shared_edges(agents):
                 # Consider only intersections that yield a line (shared edge), not a point.
                 if inter and inter.geom_type in ['LineString', 'MultiLineString']:
                     polygon.neighbors.append(neighbor)
-
-
 
 # ------------------------
 # Function: Initialize Flow in Specific Tiles (Source Cells)
@@ -71,6 +72,7 @@ def initialize_currents(model, polygon_ids, magnitude, bearing_degrees):
 # ------------------------
 # Function: Propagate Eulerian Flow (Simplified Update)
 # ------------------------
+
 def propagate_eulerian_flow(model, beta=0.95, alpha=0.3, nu=0.1, delta_x=1.0, delta_t=0.1):
     """
     A simplified Eulerian update for the flow field with explicit bounce (reflection)
@@ -80,7 +82,7 @@ def propagate_eulerian_flow(model, beta=0.95, alpha=0.3, nu=0.1, delta_x=1.0, de
       - Compute advective and diffusive terms as before.
       - Then, for each edge (left, right, bottom, top), if no neighbor exists there
         and the cell's updated velocity is directed outwards, reflect that component
-        (reducing it to 10% of its value).
+        (reducing it to 50% of its value).
     """
     new_fields = {}  # Dictionary to store updated field values for each agent
     tol = 1e-6  # Tolerance for comparing floating-point bounds
@@ -166,8 +168,6 @@ def propagate_eulerian_flow(model, beta=0.95, alpha=0.3, nu=0.1, delta_x=1.0, de
         agent.fields["velocity_x"] = new_vals["velocity_x"]
         agent.fields["velocity_y"] = new_vals["velocity_y"]
 
-
-
 # ------------------------
 # Agent Class: FlowPolygonAgent (Each Tile)
 # ------------------------
@@ -190,23 +190,23 @@ class FlowPolygonAgent(mg.GeoAgent):
         pass
 
 # ------------------------
-# Model Class: FlowModel
+# Model Class: FlowModel with Caching
 # ------------------------
 
 class FlowModel(mesa.Model):
     def __init__(self, geojson_path):
         super().__init__()
         self.space = mg.GeoSpace(warn_crs_conversion=False)
-
+        
         # Load GeoJSON data as a GeoDataFrame.
         agents_gdf = gpd.read_file(geojson_path)
-
+        
         # Adjust the IDs by subtracting 511 to match the expected range.
         if "id" in agents_gdf.columns:
             agents_gdf["unique_id"] = agents_gdf["id"] - 511
         else:
             raise ValueError("ERROR: No 'id' field found in GeoJSON properties.")
-
+        
         # Create a list of agents.
         self.polygons = []
         for _, row in agents_gdf.iterrows():
@@ -217,11 +217,63 @@ class FlowModel(mesa.Model):
                 crs=agents_gdf.crs
             )
             self.polygons.append(agent)
-
-        # Add agents to the GeoSpace and compute neighbor relationships.
+        
+        # Add agents to the GeoSpace.
         self.space.add_agents(self.polygons)
-        compute_shared_edges(self.polygons)
-
+        
+        # --------------
+        # Load or Compute Neighbors Cache
+        # --------------
+        neighbors_filename = "neighbors.pkl"
+        if os.path.exists(neighbors_filename):
+            with open(neighbors_filename, "rb") as f:
+                neighbors_dict = pickle.load(f)
+            id_to_agent = {agent.unique_id: agent for agent in self.polygons}
+            for agent in self.polygons:
+                if agent.unique_id in neighbors_dict:
+                    agent.neighbors = [id_to_agent[n_id] for n_id in neighbors_dict[agent.unique_id]]
+            print("Loaded neighbor data from cache.")
+        else:
+            compute_shared_edges(self.polygons)
+            neighbors_dict = {agent.unique_id: [n.unique_id for n in agent.neighbors] for agent in self.polygons}
+            with open(neighbors_filename, "wb") as f:
+                pickle.dump(neighbors_dict, f)
+            print("Computed and cached neighbor data.")
+        
+        # --------------
+        # Load or Compute Initial Source Velocities Cache
+        # --------------
+        init_velocities_filename = "init_velocities.pkl"
+        if os.path.exists(init_velocities_filename):
+            with open(init_velocities_filename, "rb") as f:
+                init_velocities = pickle.load(f)
+            for agent in self.polygons:
+                if agent.unique_id in init_velocities:
+                    vx, vy = init_velocities[agent.unique_id]
+                    agent.fields["velocity_x"] = vx
+                    agent.fields["velocity_y"] = vy
+                    agent.source = True
+            print("Loaded initial source velocities from cache.")
+        else:
+            # Define the polygon IDs for current initialization.
+            polygon_ids_to_initialize = {
+                4260, 4261, 4262, 4263, 4264, 4265, 
+                4337, 4338, 4339, 4340, 4341, 
+                4414, 4415, 4416, 4417, 4418, 
+                4492, 4493, 4494, 4495, 4496, 
+                4570, 4571, 4572, 4573, 
+                4648, 4649, 4650, 
+                4725, 4726, 4727, 
+                4802, 4803, 4804
+            }
+            polygon_ids_to_initialize = {pid - 511 for pid in polygon_ids_to_initialize}
+            initialize_currents(self, polygon_ids_to_initialize, magnitude=1.6, bearing_degrees=140)
+            init_velocities = {agent.unique_id: (agent.fields["velocity_x"], agent.fields["velocity_y"]) 
+                               for agent in self.polygons if agent.source}
+            with open(init_velocities_filename, "wb") as f:
+                pickle.dump(init_velocities, f)
+            print("Computed and cached initial source velocities.")
+        
         print("\nModel initialized with the following polygon IDs (first 20 shown):")
         for agent in self.polygons[:20]:
             print(f"  - Agent ID: {agent.unique_id}")
@@ -234,7 +286,7 @@ class FlowModel(mesa.Model):
 # Visualization Function: Plot Flow Vectors
 # ------------------------
 
-def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1):
+def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1,scaler=1):
     """
     Visualizes the flow field by plotting arrows (using a quiver plot) over the tile polygons.
     The arrow lengths are scaled for visualization.
@@ -260,7 +312,7 @@ def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1):
     
     ax.quiver(
         x_coords, y_coords, flow_x, flow_y,
-        angles="xy", scale_units="inches", scale=1e10,
+        angles="xy", scale_units="inches", scale=scaler,
         color="blue", width=0.005, headwidth=5
     )
     plt.title("Eulerian Flow Field in Malpeque Bay (Scaled)")
@@ -275,27 +327,9 @@ def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1):
 geojson_test_path = "malpeque_tiles.geojson"
 model = FlowModel(geojson_test_path)
 
-# Define the polygon IDs for current initialization (IDs adjusted by subtracting 511).
-polygon_ids_to_initialize = {
-    4260, 4261, 4262, 4263, 4264, 4265, 
-    4337, 4338, 4339, 4340, 4341, 
-    4414, 4415, 4416, 4417, 4418, 
-    4492, 4493, 4494, 4495, 4496, 
-    4570, 4571, 4572, 4573, 
-    4648, 4649, 4650, 
-    4725, 4726, 4727, 
-    4802, 4803, 4804
-}
-polygon_ids_to_initialize = {pid - 511 for pid in polygon_ids_to_initialize}
-
-# Initialize the flow in selected tiles (which become source cells).
-initialize_currents(model, polygon_ids_to_initialize, magnitude=1.6, bearing_degrees=140)
-
 # Advance the model several steps to propagate the flow.
-for i in tqdm(range(50)):
+for _ in tqdm(range(500)):
     model.step()
 
-
-plot_flow_vectors(model)
-
-# Visualize the resulting Eulerian flow field.
+plot_flow_vectors(model,scaler=1e12)
+plot_flow_vectors(model,scaler=1e13)
