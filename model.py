@@ -2,7 +2,7 @@ import json
 import math
 import mesa
 import mesa_geo as mg
-from shapely.geometry import shape
+from shapely.geometry import shape, Point
 import geopandas as gpd
 import matplotlib.pyplot as plt
 from pathlib import Path
@@ -10,9 +10,11 @@ from tqdm import tqdm
 import pickle
 import os
 import numpy as np
+from shapely.affinity import translate, scale as scale_geom
+from scipy.interpolate import griddata
 
 # ------------------------
-# Load GeoJSON Data
+# Load GeoJSON Data and Rescale Geometries
 # ------------------------
 
 geojson_path = "malpeque_tiles.geojson"  # Local file
@@ -20,200 +22,386 @@ with open(geojson_path, "r", encoding="utf-8") as f:
     geojson_data = json.load(f)
 print(f"Total Polygons in GeoJSON: {len(geojson_data['features'])}")
 
-# ------------------------
-# Utility Function: Compute Shared Edges using Shapely Intersection
-# ------------------------
+# Load the data as a GeoDataFrame.
+agents_gdf = gpd.read_file(geojson_path)
 
-def compute_shared_edges(agents):
+# Compute total bounds.
+minx, miny, maxx, maxy = agents_gdf.total_bounds
+x_range = maxx - minx
+y_range = maxy - miny
+# We want to rescale to a 62 x 65 grid.
+scale_x = 62.0 / x_range
+scale_y = 65.0 / y_range
+print(f"Rescaling: x_range={x_range:.3e}, y_range={y_range:.3e}")
+print(f"Scale factors: scale_x={scale_x:.3e}, scale_y={scale_y:.3e}")
+
+# Translate so that minimum is (0,0), then scale.
+agents_gdf["geometry"] = agents_gdf["geometry"].apply(
+    lambda geom: scale_geom(translate(geom, xoff=-minx, yoff=-miny), 
+                              xfact=scale_x, yfact=scale_y, origin=(0, 0))
+)
+
+# ------------------------
+# Utility Function: Assign Shared Edge Velocities
+# ------------------------
+def assign_edge_velocities(agents):
     """
-    For each agent (tile), identify direct neighbors (up, down, left, right) by checking
-    if the intersection between two geometries yields a line (or multi-line). This indicates a
-    shared edge. Tiles that represent islands or edges will simply have fewer neighbors.
+    For each agent (cell), assign four velocity vectors (north, east, south, west).
+    If two adjacent cells share an edge, they reference the same velocity object.
+    We assume cells are square and axis-aligned.
+    
+    Each edge is keyed by a tuple that uniquely identifies its location.
     """
-    for polygon in agents:
-        polygon.neighbors = []  # Reset neighbor list
-        for neighbor in agents:
-            if polygon is not neighbor:
-                inter = polygon.geometry.intersection(neighbor.geometry)
-                # Consider only intersections that yield a line (shared edge), not a point.
-                if inter and inter.geom_type in ['LineString', 'MultiLineString']:
-                    polygon.neighbors.append(neighbor)
+    edge_dict = {}
+    tol = 1e-6
+
+    for agent in agents:
+        minx, miny, maxx, maxy = agent.geometry.bounds
+        # Round coordinates for robustness.
+        minx_r = round(minx, 6)
+        miny_r = round(miny, 6)
+        maxx_r = round(maxx, 6)
+        maxy_r = round(maxy, 6)
+        
+        # Define keys for each edge.
+        west_key  = ("W", minx_r, miny_r, maxy_r)
+        east_key  = ("E", maxx_r, miny_r, maxy_r)
+        south_key = ("S", miny_r, minx_r, maxx_r)
+        north_key = ("N", maxy_r, minx_r, maxx_r)
+        
+        if west_key in edge_dict:
+            agent.velocity_w = edge_dict[west_key]
+        else:
+            edge_dict[west_key] = {"vx": 0.0, "vy": 0.0}
+            agent.velocity_w = edge_dict[west_key]
+            
+        if east_key in edge_dict:
+            agent.velocity_e = edge_dict[east_key]
+        else:
+            edge_dict[east_key] = {"vx": 0.0, "vy": 0.0}
+            agent.velocity_e = edge_dict[east_key]
+            
+        if south_key in edge_dict:
+            agent.velocity_s = edge_dict[south_key]
+        else:
+            edge_dict[south_key] = {"vx": 0.0, "vy": 0.0}
+            agent.velocity_s = edge_dict[south_key]
+            
+        if north_key in edge_dict:
+            agent.velocity_n = edge_dict[north_key]
+        else:
+            edge_dict[north_key] = {"vx": 0.0, "vy": 0.0}
+            agent.velocity_n = edge_dict[north_key]
+    print("Assigned shared edge velocities to all agents.")
+    return edge_dict
 
 # ------------------------
-# Function: Initialize Flow in Specific Tiles (Source Cells)
+# Function: Initialize Source Cells
 # ------------------------
-
 def initialize_currents(model, polygon_ids, magnitude, bearing_degrees):
     """
-    Sets initial flow (velocity) vectors in the selected cells (tiles) by converting a given
-    magnitude and bearing into Cartesian components. These cells are then marked as sources.
-    The velocities are stored in each agent's "fields" dictionary.
+    Sets the initial flow for specified source cells by injecting a constant velocity.
+    The injection is applied to specific edges of the cell (for example, the west and south edges)
+    so that adjacent cells share the same edge velocity.
     """
-    # Convert bearing to Cartesian components
+    # Convert bearing to Cartesian components.
     bearing_radians = math.radians(360 - bearing_degrees)
     init_vx = magnitude * math.cos(bearing_radians)
     init_vy = magnitude * math.sin(bearing_radians)
-
-    print(f"\nInitializing currents for {len(polygon_ids)} polygons as source cells...\n")
+    
+    print(f"\nInitializing currents for {len(polygon_ids)} source cells...\n")
     found_tiles = 0
-
     for agent in model.polygons:
         if agent.unique_id in polygon_ids:
-            agent.fields["velocity_x"] = init_vx
-            agent.fields["velocity_y"] = init_vy
-            agent.source = True  # Mark this cell as a source.
+            # Inject on the west and south edges.
+            agent.velocity_w["vx"] = init_vx
+            agent.velocity_w["vy"] = init_vy
+            agent.velocity_s["vx"] = init_vx
+            agent.velocity_s["vy"] = init_vy
+            agent.source = True
             found_tiles += 1
-            print(f"Agent {agent.unique_id} → Source flow vector: ({init_vx:.2f}, {init_vy:.2f})")
-
+            print(f"Agent {agent.unique_id} → Source injection (west & south): ({init_vx:.2f}, {init_vy:.2f})")
     if found_tiles == 0:
-        print("ERROR: No matching polygons found. Check your polygon IDs!")
+        print("ERROR: No matching source cells found!")
     else:
-        print(f"\nSuccessfully initialized {found_tiles} source tiles with flow vectors!\n")
+        print(f"\nSuccessfully initialized {found_tiles} source cells.\n")
 
 # ------------------------
-# Function: Propagate Eulerian Flow (Simplified Update with Nonlinear Advection)
+# Semi-Lagrangian Advection for Edge Velocities with Bilinear Interpolation
 # ------------------------
-def propagate_eulerian_flow(model, 
-                            beta=3, 
-                            nu=3, 
-                            delta_x=1.0, 
-                            delta_t=1):
+def advect_edge_velocities(model, dt):
     """
-    A simplified Eulerian update for the flow field with explicit bounce (reflection)
-    conditions at cell edges that lack neighbors.
-
-    For each non-source cell (we assume every cell has at least one neighbor):
-      - Compute a nonlinear advective term that scales with the cell's velocity and
-        the difference between the cell's velocity and the average neighbor velocity.
-      - Compute a diffusive term using a finite-difference Laplacian.
-      - Then, for each edge (left, right, bottom, top), if no neighbor exists there
-        and the cell's updated velocity is directed outwards, reflect that component
-        (reducing it to 50% of its value).
+    Performs a semi-Lagrangian advection step on the edge velocities using bilinear interpolation.
     
-    Source cells are left untouched so that they maintain their initial velocity
-    for the entire simulation.
+    For each cell and for each edge, the function:
+      1. Computes the midpoint of the edge.
+      2. Uses the current edge velocity to backtrace a departure point.
+      3. Interpolates the new edge velocity at that departure point using griddata.
+      4. Updates the cell's edge velocity with the interpolated value.
+      
+    This version uses griddata with a query point wrapped in a list so that we can
+    reliably extract a 2-element vector.
     """
-    new_fields = {}  # Dictionary to store updated field values for each agent
-    tol = 1e-6      # Tolerance for comparing floating-point bounds
-
-    # Amplification factor for nonlinear advection.
-    K = 1
-
-    for agent in model.polygons:
-        # Skip source cells.
-        if agent.source:
-            continue
-
-        # ------------------------
-        # Compute Nonlinear Advective Term
-        # ------------------------
-        sum_vx_adv, sum_vy_adv = 0.0, 0.0
-        count_adv = 0
-        for neighbor in agent.neighbors:
-            if neighbor.fields["velocity_x"] != 0.0 or neighbor.fields["velocity_y"] != 0.0:
-                sum_vx_adv += neighbor.fields["velocity_x"]
-                sum_vy_adv += neighbor.fields["velocity_y"]
-                count_adv += 1
-        if count_adv > 0:
-            avg_vx_adv = sum_vx_adv / count_adv
-            avg_vy_adv = sum_vy_adv / count_adv
-        else:
-            avg_vx_adv = agent.fields["velocity_x"]
-            avg_vy_adv = agent.fields["velocity_y"]
+    # Precompute donor data for each edge orientation.
+    west_positions = []
+    west_velocities = []
+    east_positions = []
+    east_velocities = []
+    south_positions = []
+    south_velocities = []
+    north_positions = []
+    north_velocities = []
+    
+    for cell in model.polygons:
+        minx, miny, maxx, maxy = cell.geometry.bounds
+        # West edge midpoint.
+        west_positions.append((minx, (miny + maxy) / 2))
+        west_velocities.append((cell.velocity_w["vx"], cell.velocity_w["vy"]))
+        # East edge midpoint.
+        east_positions.append((maxx, (miny + maxy) / 2))
+        east_velocities.append((cell.velocity_e["vx"], cell.velocity_e["vy"]))
+        # South edge midpoint.
+        south_positions.append(((minx + maxx) / 2, miny))
+        south_velocities.append((cell.velocity_s["vx"], cell.velocity_s["vy"]))
+        # North edge midpoint.
+        north_positions.append(((minx + maxx) / 2, maxy))
+        north_velocities.append((cell.velocity_n["vx"], cell.velocity_n["vy"]))
+    
+    west_positions = np.array(west_positions)
+    west_velocities = np.array(west_velocities)
+    east_positions = np.array(east_positions)
+    east_velocities = np.array(east_velocities)
+    south_positions = np.array(south_positions)
+    south_velocities = np.array(south_velocities)
+    north_positions = np.array(north_positions)
+    north_velocities = np.array(north_velocities)
+    
+    # Update each cell's edge velocities.
+    for cell in model.polygons:
+        minx, miny, maxx, maxy = cell.geometry.bounds
         
-        # Amplified nonlinear advective term:
-        advective_vx = beta * K * agent.fields["velocity_x"] * ((agent.fields["velocity_x"] - avg_vx_adv) / delta_x)
-        advective_vy = beta * K * agent.fields["velocity_y"] * ((agent.fields["velocity_y"] - avg_vy_adv) / delta_x)
-
-        # ------------------------
-        # Compute Diffusive Term (Finite-Difference Laplacian)
-        # ------------------------
-        sum_vx_diff, sum_vy_diff = 0.0, 0.0
-        count_diff = len(agent.neighbors)
-        for neighbor in agent.neighbors:
-            sum_vx_diff += neighbor.fields["velocity_x"]
-            sum_vy_diff += neighbor.fields["velocity_y"]
-        avg_vx_diff = sum_vx_diff / count_diff
-        avg_vy_diff = sum_vy_diff / count_diff
-        diffusive_vx = nu * ((avg_vx_diff - agent.fields["velocity_x"]) / (delta_x**2))
-        diffusive_vy = nu * ((avg_vy_diff - agent.fields["velocity_y"]) / (delta_x**2))
-
-        # ------------------------
-        # Combine Terms to Update Velocity (Euler Step)
-        # ------------------------
-        new_vx = agent.fields["velocity_x"] + delta_t * (-advective_vx + diffusive_vx)
-        new_vy = agent.fields["velocity_y"] + delta_t * (-advective_vy + diffusive_vy)
-
-        # ------------------------
-        # Bounce (Reflection) Conditions Based on Missing Neighbors
-        # ------------------------
-        cell_minx, cell_miny, cell_maxx, cell_maxy = agent.geometry.bounds
-        has_left   = any(abs(neighbor.geometry.bounds[2] - cell_minx) < tol for neighbor in agent.neighbors)
-        has_right  = any(abs(neighbor.geometry.bounds[0] - cell_maxx) < tol for neighbor in agent.neighbors)
-        has_bottom = any(abs(neighbor.geometry.bounds[3] - cell_miny) < tol for neighbor in agent.neighbors)
-        has_top    = any(abs(neighbor.geometry.bounds[1] - cell_maxy) < tol for neighbor in agent.neighbors)
-
-        ref_mag = 0.2
-        if (not has_left) and new_vx < 0:
-            new_vx = -ref_mag * new_vx
-        if (not has_right) and new_vx > 0:
-            new_vx = -ref_mag * new_vx
-        if (not has_bottom) and new_vy < 0:
-            new_vy = -ref_mag * new_vy
-        if (not has_top) and new_vy > 0:
-            new_vy = -ref_mag * new_vy
+        # West edge:
+        west_mid = np.array([minx, (miny + maxy) / 2])
+        current_w = np.array([cell.velocity_w["vx"], cell.velocity_w["vy"]])
+        departure_w = west_mid - dt * current_w
+        new_w = griddata(west_positions, west_velocities, [departure_w], method='linear', fill_value=0.0)[0]
+        cell.velocity_w["vx"], cell.velocity_w["vy"] = new_w
         
-        # Global damping for stability.
-        new_vx *= 0.7
-        new_vy *= 0.7
-
-        new_fields[agent] = {"velocity_x": new_vx, "velocity_y": new_vy}
-
-    # Update all agents simultaneously.
-    for agent, new_vals in new_fields.items():
-        agent.fields["velocity_x"] = new_vals["velocity_x"]
-        agent.fields["velocity_y"] = new_vals["velocity_y"]
+        # East edge:
+        east_mid = np.array([maxx, (miny + maxy) / 2])
+        current_e = np.array([cell.velocity_e["vx"], cell.velocity_e["vy"]])
+        departure_e = east_mid - dt * current_e
+        new_e = griddata(east_positions, east_velocities, [departure_e], method='linear', fill_value=0.0)[0]
+        cell.velocity_e["vx"], cell.velocity_e["vy"] = new_e
+        
+        # South edge:
+        south_mid = np.array([(minx + maxx) / 2, miny])
+        current_s = np.array([cell.velocity_s["vx"], cell.velocity_s["vy"]])
+        departure_s = south_mid - dt * current_s
+        new_s = griddata(south_positions, south_velocities, [departure_s], method='linear', fill_value=0.0)[0]
+        cell.velocity_s["vx"], cell.velocity_s["vy"] = new_s
+        
+        # North edge:
+        north_mid = np.array([(minx + maxx) / 2, maxy])
+        current_n = np.array([cell.velocity_n["vx"], cell.velocity_n["vy"]])
+        departure_n = north_mid - dt * current_n
+        new_n = griddata(north_positions, north_velocities, [departure_n], method='linear', fill_value=0.0)[0]
+        cell.velocity_n["vx"], cell.velocity_n["vy"] = new_n
 
 # ------------------------
-# Agent Class: FlowPolygonAgent (Each Tile)
+# Incompressibility Projection (Projection Step)
 # ------------------------
+def incompressible(model, domain_bounds=(0, 0, 62, 65), num_iterations=10, o=0.8):
+    """
+    Iteratively adjusts the edge velocities for each cell so that the net divergence is forced toward zero.
+    
+    For each cell, the divergence is computed as:
+        divergence = v_e + v_n - v_w - v_s
+    where:
+      - v_e is the east edge x–velocity,
+      - v_n is the north edge y–velocity,
+      - v_w is the west edge x–velocity,
+      - v_s is the south edge y–velocity.
+    
+    Available edges are those that are not on the global boundary (given by domain_bounds).
+    The correction for each available edge is computed as:
+        correction = (divergence / n_avail) * o
+    where o is the relaxation factor (0 < o <= 1).
+    
+    The function iterates this correction for num_iterations iterations and prints the average divergence
+    after each iteration.
+    """
+    min_dom, min_doy, max_dom, max_doy = domain_bounds
+    for it in range(num_iterations):
+        for cell in model.polygons:
+            v_e = cell.velocity_e["vx"]
+            v_n = cell.velocity_n["vy"]
+            v_w = cell.velocity_w["vx"]
+            v_s = cell.velocity_s["vy"]
+            divergence = v_e + v_n - v_w - v_s
 
+            bx = cell.geometry.bounds  # [minx, miny, maxx, maxy]
+            available_edges = []
+            if bx[2] < max_dom - 1e-6:
+                available_edges.append("east")
+            if bx[3] < max_doy - 1e-6:
+                available_edges.append("north")
+            if bx[0] > min_dom + 1e-6:
+                available_edges.append("west")
+            if bx[1] > min_doy + 1e-6:
+                available_edges.append("south")
+            
+            n_avail = len(available_edges)
+            if n_avail == 0:
+                continue
+
+            correction = (divergence / n_avail) * o
+
+            if "east" in available_edges:
+                cell.velocity_e["vx"] -= correction
+            if "north" in available_edges:
+                cell.velocity_n["vy"] -= correction
+            if "west" in available_edges:
+                cell.velocity_w["vx"] += correction
+            if "south" in available_edges:
+                cell.velocity_s["vy"] += correction
+
+        total_div = 0.0
+        count = 0
+        for cell in model.polygons:
+            v_e = cell.velocity_e["vx"]
+            v_n = cell.velocity_n["vy"]
+            v_w = cell.velocity_w["vx"]
+            v_s = cell.velocity_s["vy"]
+            total_div += (v_e + v_n - v_w - v_s)
+            count += 1
+        avg_div = total_div / count if count > 0 else 0.0
+        print(f"Iteration {it+1}: Average divergence = {avg_div:.3e}")
+
+# ------------------------
+# Compute Cell-Centered Velocity (for Heatmap)
+# ------------------------
+def compute_cell_center_velocity(model):
+    centers = []
+    magnitudes = []
+    for cell in model.polygons:
+        center = cell.geometry.centroid.coords[0]
+        centers.append(center)
+        avg_vx = (cell.velocity_w["vx"] + cell.velocity_e["vx"]) / 2.0
+        avg_vy = (cell.velocity_s["vy"] + cell.velocity_n["vy"]) / 2.0
+        mag = math.sqrt(avg_vx**2 + avg_vy**2)
+        magnitudes.append(mag)
+    return centers, magnitudes
+
+# ------------------------
+# Visualization Function: Plot Edge Velocities (Vector Field)
+# ------------------------
+def plot_edge_velocities(model, arrow_spacing=1, scale=1):
+    x_n, y_n, vx_n, vy_n = [], [], [], []
+    x_e, y_e, vx_e, vy_e = [], [], [], []
+    x_s, y_s, vx_s, vy_s = [], [], [], []
+    x_w, y_w, vx_w, vy_w = [], [], [], []
+    
+    for cell in model.polygons:
+        minx, miny, maxx, maxy = cell.geometry.bounds
+        x_n.append((minx + maxx) / 2)
+        y_n.append(maxy)
+        vx_n.append(cell.velocity_n["vx"] * scale)
+        vy_n.append(cell.velocity_n["vy"] * scale)
+        x_s.append((minx + maxx) / 2)
+        y_s.append(miny)
+        vx_s.append(cell.velocity_s["vx"] * scale)
+        vy_s.append(cell.velocity_s["vy"] * scale)
+        x_e.append(maxx)
+        y_e.append((miny + maxy) / 2)
+        vx_e.append(cell.velocity_e["vx"] * scale)
+        vy_e.append(cell.velocity_e["vy"] * scale)
+        x_w.append(minx)
+        y_w.append((miny + maxy) / 2)
+        vx_w.append(cell.velocity_w["vx"] * scale)
+        vy_w.append(cell.velocity_w["vy"] * scale)
+    
+    fig, ax = plt.subplots(figsize=(12, 12))
+    polygons = [cell.geometry for cell in model.polygons]
+    gdf = gpd.GeoDataFrame({"geometry": polygons}, crs=model.space.crs)
+    gdf.plot(edgecolor="black", facecolor="none", ax=ax)
+    
+    ax.quiver(x_n[::arrow_spacing], y_n[::arrow_spacing], vx_n[::arrow_spacing], vy_n[::arrow_spacing],
+              angles="xy", scale_units="xy", scale=1, color="red", label="North")
+    ax.quiver(x_s[::arrow_spacing], y_s[::arrow_spacing], vx_s[::arrow_spacing], vy_s[::arrow_spacing],
+              angles="xy", scale_units="xy", scale=1, color="blue", label="South")
+    ax.quiver(x_e[::arrow_spacing], y_e[::arrow_spacing], vx_e[::arrow_spacing], vy_e[::arrow_spacing],
+              angles="xy", scale_units="xy", scale=1, color="green", label="East")
+    ax.quiver(x_w[::arrow_spacing], y_w[::arrow_spacing], vx_w[::arrow_spacing], vy_w[::arrow_spacing],
+              angles="xy", scale_units="xy", scale=1, color="purple", label="West")
+    
+    plt.title("Edge Velocities (Vector Field)")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.legend()
+    plt.show()
+
+# ------------------------
+# Visualization Function: Plot Cell-Centered Velocity Magnitude Heatmap
+# ------------------------
+def plot_heatmap(model):
+    centers, magnitudes = compute_cell_center_velocity(model)
+    xs = [pt[0] for pt in centers]
+    ys = [pt[1] for pt in centers]
+    
+    plt.figure(figsize=(10, 10))
+    sc = plt.scatter(xs, ys, c=magnitudes, cmap='viridis', s=20)
+    plt.colorbar(sc, label="Velocity Magnitude")
+    plt.title("Cell-Centered Velocity Magnitude Heatmap")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.show()
+
+# ------------------------
+# Agent Class: FlowPolygonAgent with Edge Velocities
+# ------------------------
 class FlowPolygonAgent(mg.GeoAgent):
     def __init__(self, unique_id, model, geometry, crs):
         super().__init__(model, geometry, crs)
         self.unique_id = unique_id
-        self.neighbors = []  # List to store adjacent tiles
-        
-        # Eulerian flow fields stored in a dictionary.
-        self.fields = {
-            "velocity_x": 0.0,
-            "velocity_y": 0.0,
-        }
-        self.source = False  # Indicator whether this cell is a constant flow source.
-
+        self.velocity_n = None
+        self.velocity_e = None
+        self.velocity_s = None
+        self.velocity_w = None
+        self.source = False  # Flag indicating if this cell is a source cell.
     def step(self):
-        # This agent does not update its own flow; the global Eulerian update is applied at the model level.
+        # No dynamic updates for now.
         pass
 
 # ------------------------
-# Model Class: FlowModel with Caching
+# Model Class: FlowModel with Caching and Edge Sharing
 # ------------------------
-
 class FlowModel(mesa.Model):
-    def __init__(self, geojson_path):
+    def __init__(self, geojson_input):
         super().__init__()
         self.space = mg.GeoSpace(warn_crs_conversion=False)
         
-        # Load GeoJSON data as a GeoDataFrame.
-        agents_gdf = gpd.read_file(geojson_path)
+        # Load and rescale GeoJSON data.
+        if isinstance(geojson_input, str):
+            agents_gdf = gpd.read_file(geojson_input)
+        else:
+            agents_gdf = gpd.GeoDataFrame.from_features(geojson_input["features"])
         
-        # Adjust the IDs by subtracting 511 to match the expected range.
         if "id" in agents_gdf.columns:
             agents_gdf["unique_id"] = agents_gdf["id"] - 511
         else:
             raise ValueError("ERROR: No 'id' field found in GeoJSON properties.")
         
-        # Create a list of agents.
+        # Rescale geometries to a 62 x 65 grid.
+        minx, miny, maxx, maxy = agents_gdf.total_bounds
+        scale_x = 62.0 / (maxx - minx)
+        scale_y = 65.0 / (maxy - miny)
+        agents_gdf["geometry"] = agents_gdf["geometry"].apply(
+            lambda geom: scale_geom(translate(geom, xoff=-minx, yoff=-miny),
+                                      xfact=scale_x, yfact=scale_y, origin=(0,0))
+        )
+        
         self.polygons = []
         for _, row in agents_gdf.iterrows():
             agent = FlowPolygonAgent(
@@ -224,31 +412,12 @@ class FlowModel(mesa.Model):
             )
             self.polygons.append(agent)
         
-        # Add agents to the GeoSpace.
         self.space.add_agents(self.polygons)
         
-        # --------------
-        # Load or Compute Neighbors Cache
-        # --------------
-        neighbors_filename = "neighbors.pkl"
-        if os.path.exists(neighbors_filename):
-            with open(neighbors_filename, "rb") as f:
-                neighbors_dict = pickle.load(f)
-            id_to_agent = {agent.unique_id: agent for agent in self.polygons}
-            for agent in self.polygons:
-                if agent.unique_id in neighbors_dict:
-                    agent.neighbors = [id_to_agent[n_id] for n_id in neighbors_dict[agent.unique_id]]
-            print("Loaded neighbor data from cache.")
-        else:
-            compute_shared_edges(self.polygons)
-            neighbors_dict = {agent.unique_id: [n.unique_id for n in agent.neighbors] for agent in self.polygons}
-            with open(neighbors_filename, "wb") as f:
-                pickle.dump(neighbors_dict, f)
-            print("Computed and cached neighbor data.")
+        # Assign shared edge velocities.
+        self.edge_dict = assign_edge_velocities(self.polygons)
         
-        # --------------
-        # Load or Compute Initial Source Velocities Cache
-        # --------------
+        # Load or compute initial source velocities.
         init_velocities_filename = "init_velocities.pkl"
         if os.path.exists(init_velocities_filename):
             with open(init_velocities_filename, "rb") as f:
@@ -256,25 +425,26 @@ class FlowModel(mesa.Model):
             for agent in self.polygons:
                 if agent.unique_id in init_velocities:
                     vx, vy = init_velocities[agent.unique_id]
-                    agent.fields["velocity_x"] = vx
-                    agent.fields["velocity_y"] = vy
+                    agent.velocity_w["vx"] = vx
+                    agent.velocity_w["vy"] = vy
+                    agent.velocity_s["vx"] = vx
+                    agent.velocity_s["vy"] = vy
                     agent.source = True
             print("Loaded initial source velocities from cache.")
         else:
-            # Define the polygon IDs for current initialization.
             polygon_ids_to_initialize = {
-                4260, 4261, 4262, 4263, 4264, 4265, 
-                4337, 4338, 4339, 4340, 4341, 
-                4414, 4415, 4416, 4417, 4418, 
-                4492, 4493, 4494, 4495, 4496, 
-                4570, 4571, 4572, 4573, 
-                4648, 4649, 4650, 
-                4725, 4726, 4727, 
+                4260, 4261, 4262, 4263, 4264, 4265,
+                4337, 4338, 4339, 4340, 4341,
+                4414, 4415, 4416, 4417, 4418,
+                4492, 4493, 4494, 4495, 4496,
+                4570, 4571, 4572, 4573,
+                4648, 4649, 4650,
+                4725, 4726, 4727,
                 4802, 4803, 4804
             }
             polygon_ids_to_initialize = {pid - 511 for pid in polygon_ids_to_initialize}
             initialize_currents(self, polygon_ids_to_initialize, magnitude=0.5, bearing_degrees=140)
-            init_velocities = {agent.unique_id: (agent.fields["velocity_x"], agent.fields["velocity_y"]) 
+            init_velocities = {agent.unique_id: (agent.velocity_w["vx"], agent.velocity_w["vy"])
                                for agent in self.polygons if agent.source}
             with open(init_velocities_filename, "wb") as f:
                 pickle.dump(init_velocities, f)
@@ -285,257 +455,25 @@ class FlowModel(mesa.Model):
             print(f"  - Agent ID: {agent.unique_id}")
 
     def step(self):
-        # Apply the Eulerian update to the entire grid.
-        propagate_eulerian_flow(self)
+        # No dynamic update yet.
+        pass
 
 # ------------------------
-# Visualization Function: Plot Flow Vectors
+# Run the Model and Visualize with Advection and Projection
 # ------------------------
 
-def plot_flow_vectors(model, scale_factor=1, arrow_spacing=1, scaler=1):
-    """
-    Visualizes the flow field by plotting arrows (using a quiver plot) over the tile polygons.
-    The arrow lengths are scaled for visualization.
-    """
-    polygons = [agent.geometry for agent in model.polygons]
-    flow_x = [agent.fields["velocity_x"] for agent in model.polygons]
-    flow_y = [agent.fields["velocity_y"] for agent in model.polygons]
+model = FlowModel(geojson_path)
 
-    gdf = gpd.GeoDataFrame({"geometry": polygons}, crs=model.space.crs)
-    centroids = gdf.geometry.centroid
-    x_coords, y_coords = centroids.x, centroids.y
+# Run several time steps: advect then enforce incompressibility.
+num_steps = 20
+dt = 0.1  # time step for advection
+for i in tqdm(range(num_steps)):
+    advect_edge_velocities(model, dt)
+    incompressible(model, domain_bounds=(0, 0, 62, 65), num_iterations=5, o=0.8)
 
-    x_coords = x_coords[::arrow_spacing]
-    y_coords = y_coords[::arrow_spacing]
-    flow_x = [vx * scale_factor for vx in flow_x[::arrow_spacing]]
-    flow_y = [vy * scale_factor for vy in flow_y[::arrow_spacing]]
+# Visualize the results.
+print("Edge velocities (Vector Field):")
+plot_edge_velocities(model, arrow_spacing=1, scale=1)
 
-    fig, ax = plt.subplots(figsize=(12, 12))
-    gdf.plot(edgecolor="black", facecolor="none", ax=ax)
-    
-    ax.quiver(
-        x_coords, y_coords, flow_x, flow_y,
-        angles="xy", scale_units="dots", scale=scaler,
-        color="blue", width=0.005, headwidth=5
-    )
-    plt.title("Eulerian Flow Field in Malpeque Bay (Scaled)")
-    plt.xlabel("Longitude")
-    plt.ylabel("Latitude")
-    plt.show()
-
-def plot_flow_vectors_unit_directions(model, arrow_spacing=1):
-    """
-    Visualizes only the direction of the flow field by plotting unit vectors (magnitude=1).
-    """
-    polygons = [agent.geometry for agent in model.polygons]
-    flow_x = [agent.fields["velocity_x"] for agent in model.polygons]
-    flow_y = [agent.fields["velocity_y"] for agent in model.polygons]
-
-    gdf = gpd.GeoDataFrame({"geometry": polygons}, crs=model.space.crs)
-    centroids = gdf.geometry.centroid
-    x_coords, y_coords = centroids.x, centroids.y
-
-    x_coords = x_coords[::arrow_spacing]
-    y_coords = y_coords[::arrow_spacing]
-    flow_x = flow_x[::arrow_spacing]
-    flow_y = flow_y[::arrow_spacing]
-
-    for i in range(len(flow_x)):
-        vx = flow_x[i]
-        vy = flow_y[i]
-        mag = np.hypot(vx, vy)
-        if mag > 0:
-            flow_x[i] = vx / mag
-            flow_y[i] = vy / mag
-        else:
-            flow_x[i] = 0.0
-            flow_y[i] = 0.0
-
-    fig, ax = plt.subplots(figsize=(12, 12))
-    gdf.plot(edgecolor="black", facecolor="none", ax=ax)
-    ax.quiver(
-        x_coords, y_coords, flow_x, flow_y,
-        angles="xy", scale_units="dots", scale=0.05,
-        color="blue", width=0.005, headwidth=2
-    )
-    plt.title("Flow Field Directions in Malpeque Bay (Unit Vectors)")
-    plt.xlabel("Longitude")
-    plt.ylabel("Latitude")
-    plt.show()
-
-def diagnose_velocity_magnitudes(model):
-    """
-    Loops through all agents (tiles) in the model, computes the velocity magnitude
-    for each (sqrt(vx^2 + vy^2)), and prints statistics along with the order of magnitude
-    of the average velocity.
-    """
-    magnitudes = []
-    for agent in model.polygons:
-        vx = agent.fields.get("velocity_x", 0.0)
-        vy = agent.fields.get("velocity_y", 0.0)
-        mag = math.sqrt(vx**2 + vy**2)
-        magnitudes.append(mag)
-    
-    if not magnitudes:
-        print("No velocity data found.")
-        return
-
-    avg = sum(magnitudes) / len(magnitudes)
-    minv = min(magnitudes)
-    maxv = max(magnitudes)
-    
-    if avg > 0:
-        order = math.floor(math.log10(avg))
-    else:
-        order = None
-
-    print("Velocity Diagnostics:")
-    print("  Minimum Velocity: {:.3e}".format(minv))
-    print("  Maximum Velocity: {:.3e}".format(maxv))
-    print("  Average Velocity: {:.3e}".format(avg))
-    if order is not None:
-        print("  Average Order of Magnitude: 1e{}".format(order))
-    else:
-        print("  No nonzero velocities.")
-
-import matplotlib.cm as cm
-import matplotlib.colors as colors
-
-def plot_flow_vectors_unit_directions_color(model, arrow_spacing=1, cmap='viridis'):
-    """
-    Visualizes the flow field using unit vectors for direction and colors for intensity.
-    Each vector is normalized to unit length, but the original magnitude (velocity intensity)
-    is used to color the arrow via a colormap.
-    
-    Args:
-        model: The simulation model containing agents with velocity data.
-        arrow_spacing (int): Subsample factor to reduce clutter.
-        cmap (str): The name of the colormap to use.
-    """
-    # Extract polygon geometries and velocity components.
-    polygons = [agent.geometry for agent in model.polygons]
-    flow_x = [agent.fields["velocity_x"] for agent in model.polygons]
-    flow_y = [agent.fields["velocity_y"] for agent in model.polygons]
-
-    # Create a GeoDataFrame for plotting.
-    gdf = gpd.GeoDataFrame({"geometry": polygons}, crs=model.space.crs)
-    centroids = gdf.geometry.centroid
-    x_coords, y_coords = centroids.x, centroids.y
-
-    # Subsample coordinates and velocities.
-    x_coords = x_coords[::arrow_spacing]
-    y_coords = y_coords[::arrow_spacing]
-    flow_x = flow_x[::arrow_spacing]
-    flow_y = flow_y[::arrow_spacing]
-
-    # Compute magnitudes from the original velocities.
-    magnitudes = [np.hypot(vx, vy) for vx, vy in zip(flow_x, flow_y)]
-
-    # Normalize velocities to unit vectors for direction.
-    unit_flow_x = []
-    unit_flow_y = []
-    for vx, vy in zip(flow_x, flow_y):
-        mag = np.hypot(vx, vy)
-        if mag > 0:
-            unit_flow_x.append(vx / mag)
-            unit_flow_y.append(vy / mag)
-        else:
-            unit_flow_x.append(0.0)
-            unit_flow_y.append(0.0)
-
-    # Create a normalization object and colormap.
-    norm = colors.Normalize(vmin=min(magnitudes), vmax=max(magnitudes))
-    colormap = cm.get_cmap(cmap)
-    arrow_colors = colormap(norm(magnitudes))
-    
-    fig, ax = plt.subplots(figsize=(12, 12))
-    gdf.plot(edgecolor="black", facecolor="none", ax=ax)
-    
-    # Use quiver with 'dots' scale_units.
-    q = ax.quiver(
-        x_coords, y_coords, unit_flow_x, unit_flow_y,
-        color=arrow_colors,
-        angles="xy", scale_units="dots", scale=0.05,
-        width=0.005, headwidth=2
-    )
-    
-    # Add a colorbar to show the mapping from color to velocity magnitude.
-    sm = cm.ScalarMappable(norm=norm, cmap=colormap)
-    sm.set_array([])  # dummy array for the colorbar
-    plt.colorbar(sm, ax=ax, label="Velocity Magnitude")
-    
-    plt.title("Flow Field Directions in Malpeque Bay (Unit Vectors with Intensity Color)")
-    plt.xlabel("Longitude")
-    plt.ylabel("Latitude")
-    plt.show()
-
-
-def plot_flow_on_axis(ax, model, scale_factor=1, arrow_spacing=1, scaler=1e-4):
-    """
-    Plots the current flow field (using the full velocity values)
-    on a given Axes object. This function uses the same logic as your
-    'plot_flow_vectors' function.
-    """
-    polygons = [agent.geometry for agent in model.polygons]
-    flow_x = [agent.fields["velocity_x"] for agent in model.polygons]
-    flow_y = [agent.fields["velocity_y"] for agent in model.polygons]
-
-    # Create a GeoDataFrame.
-    gdf = gpd.GeoDataFrame({"geometry": polygons}, crs=model.space.crs)
-    centroids = gdf.geometry.centroid
-    x_coords, y_coords = centroids.x, centroids.y
-
-    # Subsample arrays.
-    x_coords = x_coords[::arrow_spacing]
-    y_coords = y_coords[::arrow_spacing]
-    flow_x = [vx * scale_factor for vx in flow_x[::arrow_spacing]]
-    flow_y = [vy * scale_factor for vy in flow_y[::arrow_spacing]]
-
-    # Plot the base geometry.
-    gdf.plot(edgecolor="black", facecolor="none", ax=ax)
-    # Plot the quiver arrows.
-    ax.quiver(x_coords, y_coords, flow_x, flow_y,
-              angles="xy", scale_units="dots", scale=scaler,
-              color="blue", width=0.005, headwidth=5)
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
-
-def visualize_timesteps(model, num_snapshots=4, steps_between=50):
-    """
-    Advances the simulation and collects snapshots at different time steps.
-    The snapshots are arranged in a single row of subplots.
-    
-    Args:
-        model: The Mesa-based flow model.
-        num_snapshots: How many snapshots to capture.
-        steps_between: How many simulation steps to take between snapshots.
-    """
-    fig, axes = plt.subplots(1, num_snapshots, figsize=(5*num_snapshots, 5))
-    # In case there's only one subplot, force axes to be a list.
-    if num_snapshots == 1:
-        axes = [axes]
-        
-    for i in range(num_snapshots):
-        # Advance the simulation a fixed number of steps.
-        for _ in range(steps_between):
-            model.step()
-        # Plot the current state in the subplot.
-        plot_flow_on_axis(axes[i], model, scale_factor=1, arrow_spacing=1, scaler=1e-4)
-        axes[i].set_title(f"Time step {model.timestep}")
-    
-    plt.tight_layout()
-    plt.show()
-
-
-# ------------------------
-# Run the Model and Visualize
-# ------------------------
-
-geojson_test_path = "malpeque_tiles.geojson"
-model = FlowModel(geojson_test_path)
-
-for i in tqdm(range(50)):
-    if i%5 == 0:
-        plot_flow_vectors_unit_directions_color(model)
-    model.step()
-
+print("Cell-Centered Velocity Magnitude (Heatmap):")
+plot_heatmap(model)
