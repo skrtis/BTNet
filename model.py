@@ -341,5 +341,5 @@ def plot_tile_heatmap(agents, cmap='hot'):
     ax.set_aspect("equal", adjustable="box")
     plt.show()
 
-# To run the heatmap plot, simply call:
+# To run the heatmap plot:
 plot_tile_heatmap(agents)
