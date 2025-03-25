@@ -255,10 +255,18 @@ def do_red_black_incompressibility(agents, num_steps=5):
 #############################################
 def advect_velocities(global_edges, agents, dt):
     """
-    Semi-Lagrangian advection for the staggered grid veloscities.
-    This function traces particles backwards in time and interpolates velocities.
+    Semi-Lagrangian advection for staggered grid velocities.
+    
+    Args:
+        global_edges: Dictionary of all velocity edges indexed by (type, i, j)
+        agents: List of flow agents
+        dt: Time step size
+    
+    Returns:
+        Dictionary of updated edges after advection
     """
-    # First identify source edges that should be preserved
+    # Step 1: Identify source edges that should be preserved
+    # These are edges attached to source cells, which inject momentum
     source_edges = set()
     for agent in agents:
         if agent.source:
@@ -267,107 +275,160 @@ def advect_velocities(global_edges, agents, dt):
             if agent.velocity_e: source_edges.add(id(agent.velocity_e))
             if agent.velocity_w: source_edges.add(id(agent.velocity_w))
     
-    # Build velocity field data for interpolation
-    h_positions = []  # Horizontal edge positions
-    h_values = []     # Vertical velocity components (vy)
-    v_positions = []  # Vertical edge positions
-    v_values = []     # Horizontal velocity components (vx)
-    
-    # Collect velocity data from all valid edges
-    for key, edge in global_edges.items():
-        # Skip edges with string velocity components
-        if isinstance(edge["vx"], str) or isinstance(edge["vy"], str):
-            continue
-        
-        # Include all valid velocities for interpolation
-        if key[0] == "H":  # Horizontal edge
-            h_positions.append(edge["midpoint"])
-            h_values.append(edge["vy"])
-        elif key[0] == "V":  # Vertical edge
-            v_positions.append(edge["midpoint"])
-            v_values.append(edge["vx"])
-    
-    # Create new dictionary for updated edges
+    # Step 2: Create new dictionary to store updated edges
     new_edges = {}
     
-    # Process each edge
+    # Step 3: Copy boundary edges and source edges directly (no advection)
     for key, edge in global_edges.items():
-        # 1. Copy string-valued edges (boundaries) directly
-        if isinstance(edge["vx"], str) or isinstance(edge["vy"], str):
+        if isinstance(edge["vx"], str) or isinstance(edge["vy"], str) or id(edge) in source_edges:
             new_edges[key] = edge.copy()
+    
+    # Step 4: Define interpolation functions for staggered grid
+    # For horizontal edges (vy component), we need to account for the half-cell offset in x
+    def interpolate_vy(x, y):
+        """
+        Interpolate vy from horizontal edges on a staggered grid.
+        Horizontal edges are located at (j+0.5, i) where j is the column and i is the row.
+        """
+        # Adjust for staggering: horizontal edges are at (j+0.5, i)
+        j0 = int(x - 0.5)    # Floor of (x - 0.5) to get the column index
+        i0 = int(y)          # Floor of y to get the row index
+        j1 = j0 + 1          # Next column
+        i1 = i0 + 1          # Next row
+        
+        # Calculate fractional position within the cell
+        s = (x - 0.5) - j0   # Fractional part in x, adjusted for staggering
+        t = y - i0           # Fractional part in y
+        
+        # Safety check for domain boundaries
+        if i0 < 0 or j0 < 0:
+            return 0.0
+            
+        # Get velocities at the four surrounding horizontal edges
+        v00 = global_edges.get(("H", i0, j0), {}).get("vy", 0.0)
+        v01 = global_edges.get(("H", i0, j1), {}).get("vy", 0.0)
+        v10 = global_edges.get(("H", i1, j0), {}).get("vy", 0.0)
+        v11 = global_edges.get(("H", i1, j1), {}).get("vy", 0.0)
+        
+        # Handle string values (boundaries)
+        if isinstance(v00, str): v00 = 0.0
+        if isinstance(v01, str): v01 = 0.0
+        if isinstance(v10, str): v10 = 0.0
+        if isinstance(v11, str): v11 = 0.0
+        
+        # Perform bilinear interpolation
+        # (1-s)(1-t)*v00 + s*(1-t)*v01 + (1-s)*t*v10 + s*t*v11
+        return (1-s)*(1-t)*v00 + s*(1-t)*v01 + (1-s)*t*v10 + s*t*v11
+    
+    # For vertical edges (vx component), we need to account for the half-cell offset in y
+    def interpolate_vx(x, y):
+        """
+        Interpolate vx from vertical edges on a staggered grid.
+        Vertical edges are located at (j, i+0.5) where j is the column and i is the row.
+        """
+        # Adjust for staggering: vertical edges are at (j, i+0.5)
+        j0 = int(x)          # Floor of x to get the column index
+        i0 = int(y - 0.5)    # Floor of (y - 0.5) to get the row index
+        j1 = j0 + 1          # Next column
+        i1 = i0 + 1          # Next row
+        
+        # Calculate fractional position within the cell
+        s = x - j0           # Fractional part in x
+        t = (y - 0.5) - i0   # Fractional part in y, adjusted for staggering
+        
+        # Safety check for domain boundaries
+        if i0 < 0 or j0 < 0:
+            return 0.0
+            
+        # Get velocities at the four surrounding vertical edges
+        v00 = global_edges.get(("V", i0, j0), {}).get("vx", 0.0)
+        v01 = global_edges.get(("V", i0, j1), {}).get("vx", 0.0)
+        v10 = global_edges.get(("V", i1, j0), {}).get("vx", 0.0)
+        v11 = global_edges.get(("V", i1, j1), {}).get("vx", 0.0)
+        
+        # Handle string values (boundaries)
+        if isinstance(v00, str): v00 = 0.0
+        if isinstance(v01, str): v01 = 0.0
+        if isinstance(v10, str): v10 = 0.0
+        if isinstance(v11, str): v11 = 0.0
+        
+        # Perform bilinear interpolation
+        # (1-s)(1-t)*v00 + s*(1-t)*v01 + (1-s)*t*v10 + s*t*v11
+        return (1-s)*(1-t)*v00 + s*(1-t)*v01 + (1-s)*t*v10 + s*t*v11
+    
+    # Step 5: Process horizontal edges (vy component)
+    # We need to trace backward to find where this velocity came from
+    for key, edge in global_edges.items():
+        # Skip edges that have already been processed
+        if key in new_edges:
             continue
-        
-        # 2. Copy source edges directly (preserve their velocities)
-        if id(edge) in source_edges:
-            new_edges[key] = edge.copy()
+            
+        # Process horizontal edges (where vy is stored)
+        if key[0] == "H":
+            # Get the midpoint of this edge
+            x, y = edge["midpoint"]
+            
+            # 5a. Get the vx component at this horizontal edge by interpolation
+            vx_here = interpolate_vx(x, y)
+            
+            # 5b. Trace backward to find the departure point
+            # Semi-Lagrangian advection traces particles backward along flow
+            x_departure = x - dt * vx_here       # Move backward in x direction
+            y_departure = y - dt * edge["vy"]    # Move backward in y direction
+            
+            # 5c. Sample vy at the departure point using interpolation
+            vy_departure = interpolate_vy(x_departure, y_departure)
+            
+            # 5d. Create the updated edge with new velocity
+            new_edges[key] = {
+                "vx": edge["vx"],             # Keep the secondary component unchanged
+                "vy": vy_departure,           # Update the primary component
+                "locked": edge.get("locked", False),
+                "midpoint": edge["midpoint"]
+            }
+    
+    # Step 6: Process vertical edges (vx component)
+    # Similar to horizontal edges, but for vx component
+    for key, edge in global_edges.items():
+        # Skip edges that have already been processed
+        if key in new_edges:
             continue
-        
-        # 3. For normal edges, perform semi-Lagrangian advection
-        x, y = edge["midpoint"]
-        
-        if key[0] == "H":  # Horizontal edge (has primary vy component)
-            # Get secondary velocity component at this point
-            vx_here = griddata(v_positions, v_values, (x, y), 
-                               method='linear', fill_value=0.0)
             
-            # Trace backward to find the departure point
-            x_departure = x - dt * vx_here
-            y_departure = y - dt * edge["vy"]
+        # Process vertical edges (where vx is stored)
+        if key[0] == "V":
+            # Get the midpoint of this edge
+            x, y = edge["midpoint"]
             
-            # Sample the velocity at the departure point
-            vy_departure = griddata(h_positions, h_values, (x_departure, y_departure), 
-                                   method='linear', fill_value=edge["vy"])
+            # 6a. Get the vy component at this vertical edge by interpolation
+            vy_here = interpolate_vy(x, y)
             
-            # Create updated edge
-            new_edge = edge.copy()
-            new_edge["vy"] = vy_departure
-            new_edges[key] = new_edge
+            # 6b. Trace backward to find the departure point
+            x_departure = x - dt * edge["vx"]    # Move backward in x direction
+            y_departure = y - dt * vy_here       # Move backward in y direction
             
-        elif key[0] == "V":  # Vertical edge (has primary vx component)
-            # Get secondary velocity component at this point
-            vy_here = griddata(h_positions, h_values, (x, y), 
-                               method='linear', fill_value=0.0)
+            # 6c. Sample vx at the departure point using interpolation
+            vx_departure = interpolate_vx(x_departure, y_departure)
             
-            # Trace backward to find the departure point
-            x_departure = x - dt * edge["vx"]
-            y_departure = y - dt * vy_here
-            
-            # Sample the velocity at the departure point
-            vx_departure = griddata(v_positions, v_values, (x_departure, y_departure), 
-                                   method='linear', fill_value=edge["vx"])
-            
-            # Create updated edge
-            new_edge = edge.copy()
-            new_edge["vx"] = vx_departure
-            new_edges[key] = new_edge
+            # 6d. Create the updated edge with new velocity
+            new_edges[key] = {
+                "vx": vx_departure,           # Update the primary component
+                "vy": edge["vy"],             # Keep the secondary component unchanged
+                "locked": edge.get("locked", False),
+                "midpoint": edge["midpoint"]
+            }
+    
+    # Step 7: Provide some statistics for debugging
+    count_nonzero_h = sum(1 for k, e in new_edges.items() 
+                       if k[0] == "H" and abs(e.get("vy", 0.0)) > 1e-10)
+    count_nonzero_v = sum(1 for k, e in new_edges.items() 
+                       if k[0] == "V" and abs(e.get("vx", 0.0)) > 1e-10)
+    print(f"After advection: {count_nonzero_h} horizontal edges and {count_nonzero_v} vertical edges have non-zero velocity")
     
     return new_edges
 
 #############################################
 # STEP 8: Define Visualization Functions
 #############################################
-def plot_global_edges_diagnostics(global_dict, agents):
-    plt.figure(figsize=(12,12))
-    # Draw cell boundaries.
-    for agent in agents:
-        xs, ys = agent.geometry.exterior.xy
-        plt.plot(xs, ys, color="black", linewidth=0.5)
-    # Draw edge arrows.
-    for key, val in global_dict.items():
-        # Skip boundary edges.
-        if isinstance(val["vx"], str) or isinstance(val["vy"], str):
-            continue
-        if key[0] in ("W", "E"):
-            x, y = val["midpoint"]
-            plt.arrow(x, y, val["vx"], 0, head_width=0.3, head_length=0.3, fc="green", ec="green")
-        elif key[0] in ("N", "S"):
-            x, y = val["midpoint"]
-            plt.arrow(x, y, 0, val["vy"], head_width=0.3, head_length=0.3, fc="red", ec="red")
-    plt.title("Global Edge Velocities After Advection")
-    plt.xlabel("X")
-    plt.ylabel("Y")
-    plt.axis("equal")
-    plt.show()
 
 def compute_cell_intensities(agents):
     intensities = []
@@ -432,6 +493,68 @@ def plot_global_edges(global_edges, agents):
     plt.axis("equal")
     plt.show()
 
+def plot_global_edges_enhanced(global_edges, agents, threshold=1e-12, scale=10.0):
+    """
+    Enhanced visualization of edge velocities with adjustable threshold and scaling.
+    
+    Args:
+        global_edges: Dictionary of edge velocities
+        agents: List of agent objects
+        threshold: Minimum velocity magnitude to display
+        scale: Scale factor for arrow lengths
+    """
+    plt.figure(figsize=(15, 15))
+    
+    # Draw cell boundaries
+    for agent in agents:
+        xs, ys = agent.geometry.exterior.xy
+        plt.plot(xs, ys, color="black", linewidth=0.2)
+    
+    # Find source agents for highlighting
+    source_agents = [agent for agent in agents if agent.source]
+    
+    # Count displayed edges
+    displayed_h = 0
+    displayed_v = 0
+    
+    # Draw each edge arrow with scaled velocity
+    for key, val in global_edges.items():
+        if val.get("locked", False):
+            continue
+            
+        x, y = val["midpoint"]
+        
+        if key[0] == "V":
+            mag = abs(val["vx"])
+            if mag > threshold:
+                displayed_v += 1
+                color = "green"  # vertical edge: flux in x
+                plt.arrow(x, y, val["vx"] * scale, 0, 
+                         head_width=0.05, head_length=0.05, fc=color, ec=color, alpha=0.7)
+                
+        elif key[0] == "H":
+            mag = abs(val["vy"])
+            if mag > threshold:
+                displayed_h += 1
+                color = "red"  # horizontal edge: flux in y
+                plt.arrow(x, y, 0, val["vy"] * scale, 
+                         head_width=0.05, head_length=0.05, fc=color, ec=color, alpha=0.7)
+    
+    # Highlight source cells
+    for agent in source_agents:
+        xs, ys = agent.geometry.exterior.xy
+        plt.plot(xs, ys, color="orange", linewidth=1.0)
+    
+    # Print statistics on the plot
+    plt.text(5, 5, f"Displaying {displayed_h} horizontal and {displayed_v} vertical edges",
+             fontsize=12, bbox=dict(facecolor='white', alpha=0.7))
+    
+    plt.title(f"Edge Velocities (Scale={scale:.1f}, Threshold={threshold:.1e})")
+    plt.xlabel("X")
+    plt.ylabel("Y")
+    plt.axis("equal")
+    plt.show()
+
 #############################################
 # STEP 9: Define the Mesa Model and Simulation Loop
 #############################################
@@ -456,8 +579,52 @@ class FlowModel(mesa.Model):
 #############################################
 # STEP 10: Run the Simulation Loop and Produce Diagnostics
 #############################################
+def analyze_grid_indices(agents):
+    """Analyze the distribution of row_index and col_index values"""
+    row_indices = [agent.row_index for agent in agents]
+    col_indices = [agent.col_index for agent in agents]
+    
+    # Get the range of indices
+    min_row = min(row_indices)
+    max_row = max(row_indices)
+    min_col = min(col_indices)
+    max_col = max(col_indices)
+    
+    # Calculate statistics
+    unique_rows = len(set(row_indices))
+    unique_cols = len(set(col_indices))
+    
+    # Create a sparse matrix representation to check grid density
+    grid_points = set((agent.row_index, agent.col_index) for agent in agents)
+    
+    print("\n=== Grid Index Analysis ===")
+    print(f"Row indices range: {min_row} to {max_row} (total span: {max_row-min_row+1})")
+    print(f"Column indices range: {min_col} to {max_col} (total span: {max_col-min_col+1})")
+    print(f"Unique row values: {unique_rows}")
+    print(f"Unique column values: {unique_cols}")
+    print(f"Total cells: {len(agents)}")
+    print(f"Grid density: {len(agents)/(unique_rows*unique_cols):.2%}")
+    
+    # Visualize the grid index distribution
+    plt.figure(figsize=(12, 12))
+    plt.scatter([agent.col_index for agent in agents], 
+                [agent.row_index for agent in agents],
+                marker='s', s=10, color='blue', alpha=0.5)
+    plt.title("Grid Index Distribution")
+    plt.xlabel("Column Index")
+    plt.ylabel("Row Index")
+    plt.grid(True)
+    plt.axis('equal')
+    plt.show()
+    
+    # Return the grid bounds for reference
+    return (min_row, min_col, max_row, max_col)
+
+# Add this to your code before simulation
+grid_bounds = analyze_grid_indices(agents)
+
 model = FlowModel()
-num_steps = 5 
+num_steps = 1
 
 # Skip initial projection phase entirely
 # Start directly with advection-only simulation
@@ -474,11 +641,14 @@ plot_tile_heatmap(model.flow_agents)
 
 # Print velocity magnitude statistics
 h_vals = [edge["vy"] for key, edge in model.global_edges.items() 
-          if key[0] in ("N", "S") and not isinstance(edge["vy"], str)]
+          if key[0] == "H" and not isinstance(edge["vy"], str)]
 v_vals = [edge["vx"] for key, edge in model.global_edges.items() 
-          if key[0] in ("W", "E") and not isinstance(edge["vx"], str)]
+          if key[0] == "V" and not isinstance(edge["vx"], str)]
 
 if h_vals:
     print(f"Horizontal velocity stats: min={min(h_vals):.6f}, max={max(h_vals):.6f}, mean={sum(h_vals)/len(h_vals):.6f}")
 if v_vals:
-    print(f"Vertical velocity stats: min={min(v_vals):.6f}, max={max(v_vals)::.6f}, mean={sum(v_vals)/len(v_vals):.6f}")
+    print(f"Vertical velocity stats: min={min(v_vals):.6f}, max={max(v_vals):.6f}, mean={sum(v_vals)/len(v_vals):.6f}")
+
+print("\n=== Enhanced visualization with lower threshold ===")
+plot_global_edges_enhanced(model.global_edges, model.flow_agents, threshold=1e-12, scale=50.0)
