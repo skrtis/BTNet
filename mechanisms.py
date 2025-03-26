@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from shapely.geometry import Polygon
+import pandas as pd
+import geopandas as gpd
 
 class FlowPolygonAgent:
     def __init__(self, unique_id, geometry, row, col):
@@ -113,57 +115,19 @@ def visualize_grid(agents, h_velocities, v_velocities, title="Grid Visualization
     plt.show()
 
 def initialize_source_velocities(agents, v_velocities, magnitude=2.0):
-    """Set source velocities at the right edge of the grid"""
+    """Set source velocities at the left edge of source cells"""
     # Find rightmost column
     max_col = max(agent.col for agent in agents)
     
-    # Set velocities on right edge of rightmost column
+    # Set velocities on left edge of rightmost column cells
     for agent in agents:
         if agent.col == max_col:
             agent.source = True
-            right_edge_key = (agent.row, agent.col+1)
-            v_velocities[right_edge_key]["vx"] = -magnitude  # Negative = leftward flow
-            v_velocities[right_edge_key]["locked"] = True
+            left_edge_key = (agent.row, agent.col)  # Left edge of source cell
+            v_velocities[left_edge_key]["vx"] = -magnitude  # Negative = leftward flow
+            v_velocities[left_edge_key]["locked"] = True
     
-    print(f"Set source velocities on right edge with magnitude {magnitude}")
-
-# Create the 10x10 grid
-agents = create_grid(10, 10)
-h_velocities, v_velocities = assign_edge_velocities(agents)
-initialize_source_velocities(agents, v_velocities, 2.0)
-
-# After initializing the grid:
-
-def create_global_edges_dict(h_velocities, v_velocities):
-    """Combine horizontal and vertical velocities into a single dictionary"""
-    global_edges = {}
-    
-    # Add horizontal edges (with vertical velocities)
-    for (row, col), vel in h_velocities.items():
-        key = ("H", row, col)  # H = horizontal edge
-        global_edges[key] = {
-            "vy": vel["vy"],
-            "vx": 0.0,  # Horizontal edges don't have horizontal velocity
-            "locked": vel["locked"],
-            "midpoint": (col + 0.5, row)  # Middle of horizontal edge
-        }
-    
-    # Add vertical edges (with horizontal velocities)
-    for (row, col), vel in v_velocities.items():
-        key = ("V", row, col)  # V = vertical edge
-        global_edges[key] = {
-            "vx": vel["vx"],
-            "vy": 0.0,  # Vertical edges don't have vertical velocity
-            "locked": vel["locked"],
-            "midpoint": (col, row + 0.5)  # Middle of vertical edge
-        }
-    
-    return global_edges
-
-# Create the global edges dictionary
-global_edges = create_global_edges_dict(h_velocities, v_velocities)
-
-visualize_grid(agents, h_velocities, v_velocities, "Initial 10x10 Grid with Source Velocities")
+    print(f"Set source velocities on left edge of source cells with magnitude {magnitude}")
 
 def set_boundary_conditions(h_velocities, v_velocities):
     """Set boundary conditions - lock the domain boundary edges with zero velocity"""
@@ -199,36 +163,39 @@ def set_boundary_conditions(h_velocities, v_velocities):
     
     print("Set boundary conditions: all domain boundary edges are now locked")
 
-# Apply boundary conditions after initializing source velocities
-set_boundary_conditions(h_velocities, v_velocities)
-
-# Recreate global edges dictionary with the updated edge data
-global_edges = create_global_edges_dict(h_velocities, v_velocities)
-
-# Print updated information about locked edges
-locked_count = sum(1 for edge in global_edges.values() if edge["locked"])
-print(f"\nTotal locked edges: {locked_count}")
-
-print("\nLocked edges:")
-for key, edge in global_edges.items():
-    if edge["locked"]:
-        edge_type = "Horizontal" if key[0] == "H" else "Vertical"
-        row, col = key[1], key[2]
-        print(f"  {edge_type} edge at ({row},{col}): vx={edge['vx']:.2f}, vy={edge['vy']:.2f}")
-
-# Visualize grid with boundary conditions
-visualize_grid(agents, h_velocities, v_velocities, "10x10 Grid with Source and Boundary Conditions")
+def create_global_edges_dict(h_velocities, v_velocities):
+    """Combine horizontal and vertical velocities into a single dictionary"""
+    global_edges = {}
+    
+    # Add horizontal edges (with vertical velocities)
+    for (row, col), vel in h_velocities.items():
+        key = ("H", row, col)  # H = horizontal edge
+        global_edges[key] = {
+            "vy": vel["vy"],
+            "vx": 0.0,  # Horizontal edges don't have horizontal velocity
+            "locked": vel["locked"],
+            "midpoint": (col + 0.5, row)  # Middle of horizontal edge
+        }
+    
+    # Add vertical edges (with horizontal velocities)
+    for (row, col), vel in v_velocities.items():
+        key = ("V", row, col)  # V = vertical edge
+        global_edges[key] = {
+            "vx": vel["vx"],
+            "vy": 0.0,  # Vertical edges don't have vertical velocity
+            "locked": vel["locked"],
+            "midpoint": (col, row + 0.5)  # Middle of vertical edge
+        }
+    
+    return global_edges
 
 def advect_velocities_step1(h_velocities, v_velocities):
-    """
-    Step 1 of advection: Create 2D arrays for horizontal and vertical velocities
-    """
+    """Step 1 of advection: Create 2D arrays for horizontal and vertical velocities"""
     # Get grid dimensions
-    n_rows = max(agent.row for agent in agents) + 1  # Number of cell rows (10)
-    n_cols = max(agent.col for agent in agents) + 1  # Number of cell columns (10)
+    n_rows = max(agent.row for agent in agents) + 1
+    n_cols = max(agent.col for agent in agents) + 1
     
     # HORIZONTAL VELOCITIES (vx at vertical edges)
-    # For a 10×10 cell grid, shape should be 10×11
     h_vel_grid = np.zeros((n_rows, n_cols+1))
     
     # Fill the grid with values from v_velocities
@@ -238,14 +205,7 @@ def advect_velocities_step1(h_velocities, v_velocities):
             if edge_key in v_velocities:
                 h_vel_grid[row, col] = v_velocities[edge_key]["vx"]
     
-    # Print info about horizontal velocity grid
-    print(f"\nHorizontal velocity grid shape: {h_vel_grid.shape}")
-    print(f"Number of non-zero horizontal velocities: {np.count_nonzero(h_vel_grid)}")
-    print("\nHorizontal velocity grid (vx at vertical edges):")
-    print(h_vel_grid)
-    
     # VERTICAL VELOCITIES (vy at horizontal edges)
-    # For a 10×10 cell grid, shape should be 11×10
     v_vel_grid = np.zeros((n_rows+1, n_cols))
     
     # Fill the grid with values from h_velocities
@@ -255,54 +215,15 @@ def advect_velocities_step1(h_velocities, v_velocities):
             if edge_key in h_velocities:
                 v_vel_grid[row, col] = h_velocities[edge_key]["vy"]
     
-    # Print info about vertical velocity grid
-    print(f"\nVertical velocity grid shape: {v_vel_grid.shape}")
-    print(f"Number of non-zero vertical velocities: {np.count_nonzero(v_vel_grid)}")
-    print("\nVertical velocity grid (vy at horizontal edges):")
-    print(v_vel_grid)
-    
-    # Identify source and boundary locations
-    source_locs = []
-    boundary_locs = []
-    for (row, col), vel in v_velocities.items():
-        if abs(vel["vx"]) > 1e-10 and vel["locked"]:
-            source_locs.append((row, col))
-        elif abs(vel["vx"]) < 1e-10 and vel["locked"]:
-            boundary_locs.append((row, col))
-    
-    print("\nSource locations (row, col):")
-    for loc in source_locs:
-        print(f"  {loc}")
-        
-    print("\nBoundary locations with locked zero velocity (first 5):")
-    for loc in boundary_locs[:5]:
-        print(f"  {loc}")
-    if len(boundary_locs) > 5:
-        print(f"  ... and {len(boundary_locs) - 5} more")
-    
-    # Create a dictionary mapping grid positions to whether they're locked
-    locked_positions = {}
-    for (row, col), vel in v_velocities.items():
-        locked_positions[(row, col)] = vel["locked"]
-    
-    h_locked_positions = {}
-    for (row, col), vel in h_velocities.items():
-        h_locked_positions[(row, col)] = vel["locked"]
+    # Create locked position dictionaries
+    v_locked_positions = {(row, col): vel["locked"] for (row, col), vel in v_velocities.items()}
+    h_locked_positions = {(row, col): vel["locked"] for (row, col), vel in h_velocities.items()}
     
     # Return both velocity grids and locked positions
-    return h_vel_grid, v_vel_grid, locked_positions, h_locked_positions
-
-# Test the first step of advection
-h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions = advect_velocities_step1(h_velocities, v_velocities)
+    return h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions
 
 def advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions):
-    """
-    Step 2 of advection: Calculate secondary velocity components for each point
-    by averaging neighboring points
-    
-    For horizontal edges (which primarily store vy): Calculate secondary vx
-    For vertical edges (which primarily store vx): Calculate secondary vy
-    """
+    """Step 2 of advection: Calculate secondary velocity components by averaging"""
     n_rows, n_cols_h = h_vel_grid.shape  # 10x11
     n_rows_v, n_cols = v_vel_grid.shape  # 11x10
     
@@ -311,10 +232,8 @@ def advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked
     v_secondary_vy = np.zeros((n_rows, n_cols_h))  # Secondary vertical velocity for vertical edges
     
     # For each HORIZONTAL edge, calculate secondary vx by averaging from nearby VERTICAL edges
-    for row in range(n_rows_v):  # 0 to 10
-        for col in range(n_cols):  # 0 to 9
-            # For a horizontal edge at (row,col), get vx from vertical edges at:
-            # (row-1,col), (row,col), (row-1,col+1), (row,col+1)
+    for row in range(n_rows_v):
+        for col in range(n_cols):
             count = 0
             vx_sum = 0.0
             
@@ -340,10 +259,8 @@ def advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked
                 h_secondary_vx[row, col] = vx_sum / count
     
     # For each VERTICAL edge, calculate secondary vy by averaging from nearby HORIZONTAL edges
-    for row in range(n_rows):  # 0 to 9
-        for col in range(n_cols_h):  # 0 to 10
-            # For a vertical edge at (row,col), get vy from horizontal edges at:
-            # (row,col-1), (row+1,col-1), (row,col), (row+1,col)
+    for row in range(n_rows):
+        for col in range(n_cols_h):
             count = 0
             vy_sum = 0.0
             
@@ -368,26 +285,11 @@ def advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked
             if count > 0:
                 v_secondary_vy[row, col] = vy_sum / count
     
-    # Print some statistics about the secondary velocities
-    print(f"\nSecondary velocity components:")
-    print(f"  Horizontal edges with non-zero secondary vx: {np.count_nonzero(h_secondary_vx)}")
-    print(f"  Vertical edges with non-zero secondary vy: {np.count_nonzero(v_secondary_vy)}")
-    
     return h_secondary_vx, v_secondary_vy
-
-# Test the second step of advection
-h_secondary_vx, v_secondary_vy = advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions)
 
 def advect_velocities_step3(h_vel_grid, v_vel_grid, h_secondary_vx, v_secondary_vy, 
                            v_locked_positions, h_locked_positions, dt=0.5):
-    """
-    Step 3 of advection: Backtrack along velocity field and interpolate
-    
-    This uses semi-Lagrangian advection:
-    1. For each edge, backtrack along the velocity field
-    2. Find where the fluid "came from"
-    3. Interpolate the velocity at that location
-    """
+    """Step 3 of advection: Backtrack along velocity field and interpolate"""
     n_rows, n_cols_h = h_vel_grid.shape  # 10x11
     n_rows_v, n_cols = v_vel_grid.shape  # 11x10
     
@@ -438,11 +340,8 @@ def advect_velocities_step3(h_vel_grid, v_vel_grid, h_secondary_vx, v_secondary_
             v11 = h_vel_grid[y_floor+1, x_floor+1]     # Top-right
             
             # Perform bilinear interpolation
-            # First interpolate along x
             v0 = v00 * (1 - x_frac) + v01 * x_frac  # Bottom edge
             v1 = v10 * (1 - x_frac) + v11 * x_frac  # Top edge
-            
-            # Then interpolate along y
             v_interp = v0 * (1 - y_frac) + v1 * y_frac
             
             # Update velocity
@@ -491,29 +390,15 @@ def advect_velocities_step3(h_vel_grid, v_vel_grid, h_secondary_vx, v_secondary_
             v11 = v_vel_grid[y_floor+1, x_floor+1]     # Top-right
             
             # Perform bilinear interpolation
-            # First interpolate along x
             v0 = v00 * (1 - x_frac) + v01 * x_frac  # Bottom edge
             v1 = v10 * (1 - x_frac) + v11 * x_frac  # Top edge
-            
-            # Then interpolate along y
             v_interp = v0 * (1 - y_frac) + v1 * y_frac
             
             # Update velocity
             v_vel_grid_new[row, col] = v_interp
     
-    # Print statistics about the updated velocities
-    print("\nAfter advection step:")
-    print(f"  Non-zero horizontal velocities: {np.count_nonzero(h_vel_grid_new)}")
-    print(f"  Non-zero vertical velocities: {np.count_nonzero(v_vel_grid_new)}")
-    
     return h_vel_grid_new, v_vel_grid_new
 
-# Test the third step of advection
-h_vel_grid_new, v_vel_grid_new = advect_velocities_step3(h_vel_grid, v_vel_grid, 
-                                                      h_secondary_vx, v_secondary_vy,
-                                                      v_locked_positions, h_locked_positions, dt=1.0)
-
-# Create a function to transfer back from grid representation to the original dictionaries
 def update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_vel_grid_new):
     """Update the velocity dictionaries from the grid representation"""
     
@@ -533,85 +418,203 @@ def update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_ve
     
     return h_velocities, v_velocities
 
-# Update velocities and visualize
-h_velocities, v_velocities = update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_vel_grid_new)
-visualize_grid(agents, h_velocities, v_velocities, "Grid after one advection step", threshold=1e-8)
-
-# Add this just before running advection:
-# Add this just before running advection:
-
-def bootstrap_velocities(h_velocities, v_velocities):
-    """Create an initial velocity gradient to help advection start properly"""
-    # Find the source locations (right edge)
-    max_col = max(agent.col for agent in agents)
+def advect_velocities(h_velocities, v_velocities, dt=0.5):
+    """Complete advection process"""
+    # Step 1: Create grid representation
+    h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions = advect_velocities_step1(h_velocities, v_velocities)
     
-    # Directly set initial velocities on edges next to the source
-    # This creates a gradient that helps advection begin
+    # Step 2: Calculate secondary velocity components
+    h_secondary_vx, v_secondary_vy = advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions)
+    
+    # Step 3: Perform advection
+    h_vel_grid_new, v_vel_grid_new = advect_velocities_step3(h_vel_grid, v_vel_grid, 
+                                                          h_secondary_vx, v_secondary_vy,
+                                                          v_locked_positions, h_locked_positions, dt=dt)
+    
+    # Update velocities
+    return update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_vel_grid_new)
+
+def project_velocities(h_velocities, v_velocities, iterations=20):
+    """
+    Make the velocity field divergence-free using red-black Gauss-Seidel
+    """
+    # Get grid dimensions
+    n_rows = max(agent.row for agent in agents) + 1
+    n_cols = max(agent.col for agent in agents) + 1
+    
+    # Step 1: Group agents into red and black cells (checkerboard pattern)
+    red_agents = []
+    black_agents = []
     for agent in agents:
-        if agent.col == max_col - 1:  # Column just to the left of sources
-            # Set the right edge to have a small initial velocity
-            edge_key = (agent.row, agent.col+1)
-            if edge_key in v_velocities and not v_velocities[edge_key]["locked"]:
-                v_velocities[edge_key]["vx"] = -1.0  # Half the source magnitude
+        if agent.source:
+            continue  # Skip source cells
+        elif (agent.row + agent.col) % 2 == 0:
+            red_agents.append(agent)
+        else:
+            black_agents.append(agent)
     
-    print("Bootstrapped initial velocities to help advection start")
+    print(f"Red cells: {len(red_agents)}, Black cells: {len(black_agents)}")
+    
+    # Step 2: Perform red-black Gauss-Seidel iterations
+    for iteration in range(iterations):
+        # Update red cells
+        for agent in red_agents:
+            project_single_cell(agent)
+        
+        # Update black cells
+        for agent in black_agents:
+            project_single_cell(agent)
+    
     return h_velocities, v_velocities
 
-# Bootstrap velocities before running advection
-h_velocities, v_velocities = bootstrap_velocities(h_velocities, v_velocities)
-visualize_grid(agents, h_velocities, v_velocities, "Grid with bootstrap velocities", threshold=1e-8)
+def project_single_cell(agent):
+    """Apply projection to a single cell to make it divergence-free"""
+    # Calculate the net flux (divergence)
+    # Outflow is positive, inflow is negative
+    
+    # Horizontal edges
+    flux_n = agent.velocity_n["vy"] if agent.velocity_n else 0.0  # North edge: vy > 0 means outflow
+    flux_s = -agent.velocity_s["vy"] if agent.velocity_s else 0.0  # South edge: vy > 0 means inflow, so negate
+    
+    # Vertical edges
+    flux_e = agent.velocity_e["vx"] if agent.velocity_e else 0.0  # East edge: vx > 0 means outflow
+    flux_w = -agent.velocity_w["vx"] if agent.velocity_w else 0.0  # West edge: vx > 0 means inflow, so negate
+    
+    # Calculate total divergence - should be zero for incompressible flow
+    divergence = flux_n + flux_e + flux_w + flux_s
+    
+    # If divergence is negligible, nothing to do
+    if abs(divergence) < 1e-10:
+        return
+    
+    # Find valid edges that we can adjust (not locked)
+    valid_edges = []
+    if agent.velocity_n and not agent.velocity_n["locked"]:
+        valid_edges.append(("N", agent.velocity_n))
+    if agent.velocity_s and not agent.velocity_s["locked"]:
+        valid_edges.append(("S", agent.velocity_s))
+    if agent.velocity_e and not agent.velocity_e["locked"]:
+        valid_edges.append(("E", agent.velocity_e))
+    if agent.velocity_w and not agent.velocity_w["locked"]:
+        valid_edges.append(("W", agent.velocity_w))
+    
+    # If no adjustable edges, we can't fix divergence
+    if not valid_edges:
+        return
+    
+    # Calculate correction factor
+    correction = divergence / len(valid_edges)
+    
+    # Apply correction to drive divergence to zero
+    for direction, edge in valid_edges:
+        if direction in ("N", "S"):
+            # For north edge: decrease outflow if divergence > 0
+            # For south edge: increase inflow if divergence > 0
+            multiplier = 1.0 if direction == "N" else -1.0
+            edge["vy"] -= multiplier * correction
+        else:  # E or W
+            # For east edge: decrease outflow if divergence > 0
+            # For west edge: increase inflow if divergence > 0
+            multiplier = 1.0 if direction == "E" else -1.0
+            edge["vx"] -= multiplier * correction
 
-# Run multiple steps of advection
-def run_advection(h_velocities, v_velocities, steps=5, dt=1.0):
-    """Run multiple steps of advection"""
-    print(f"\n=== Running {steps} advection steps with dt={dt} ===")
+def run_simulation(h_velocities, v_velocities, steps=5, dt=0.5, projection_iters=20):
+    """Run multiple steps of advection and projection"""
+    print(f"Running {steps} simulation steps (dt={dt}, projection_iters={projection_iters})")
+    
+    # Visualize initial state
+    visualize_grid(agents, h_velocities, v_velocities, "Initial Grid with Source Velocities")
     
     for step in range(steps):
-        print(f"\nAdvection step {step+1}:")
+        print(f"Step {step+1}/{steps}")
         
-        # Step 1: Create grid representation
-        h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions = advect_velocities_step1(h_velocities, v_velocities)
+        # Step 1: Advection
+        h_velocities, v_velocities = advect_velocities(h_velocities, v_velocities, dt)
         
-        # Step 2: Calculate secondary velocity components
-        h_secondary_vx, v_secondary_vy = advect_velocities_step2(h_vel_grid, v_vel_grid, v_locked_positions, h_locked_positions)
-        
-        # Step 3: Perform advection
-        h_vel_grid_new, v_vel_grid_new = advect_velocities_step3(h_vel_grid, v_vel_grid, 
-                                                              h_secondary_vx, v_secondary_vy,
-                                                              v_locked_positions, h_locked_positions, dt=dt)
-        
-        # Update velocities
-        h_velocities, v_velocities = update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_vel_grid_new)
+        # Step 2: Projection
+        h_velocities, v_velocities = project_velocities(h_velocities, v_velocities, projection_iters)
         
         # Visualize every few steps
-        if (step+1) % 2 == 0 or step == steps-1:
+        if (step+1) % 5 == 0 or step == steps-1:
             visualize_grid(agents, h_velocities, v_velocities, 
-                          f"Grid after {step+1} advection steps", 
-                          threshold=1e-8)
-
-# Now run advection with larger time steps (AFTER defining the function)
-run_advection(h_velocities, v_velocities, steps=8, dt=2.0)
-
-def initialize_all_velocities(h_velocities, v_velocities, magnitude=0.1):
-    """Initialize all non-source, non-boundary edges with a small velocity"""
-    # Find the source and boundary positions
-    max_col = max(agent.col for agent in agents)
+                         f"Grid after {step+1} steps (dt={dt})", threshold=1e-8)
     
-    # Initialize all vertical edges (horizontal velocities) to a small value
-    for (row, col), vel in v_velocities.items():
-        if not vel["locked"]:  # Skip already locked edges (source and boundary)
-            # Small leftward flow everywhere
-            vel["vx"] = -magnitude
-    
-    print(f"Initialized all non-locked edges with small magnitude {magnitude}")
     return h_velocities, v_velocities
 
-# After setting boundary conditions and before running advection
-h_velocities, v_velocities = initialize_all_velocities(h_velocities, v_velocities, magnitude=0.1)
-visualize_grid(agents, h_velocities, v_velocities, 
-              "Grid with non-zero initialization", threshold=1e-8)
+def compute_cell_intensities(agents):
+    """Calculate cell intensity values based on edge velocities"""
+    intensities = []
+    for agent in agents:
+        # Sum the absolute value of all edge velocities
+        intensity = 0.0
+        if agent.velocity_n:
+            intensity += abs(agent.velocity_n["vy"])
+        if agent.velocity_s:
+            intensity += abs(agent.velocity_s["vy"])
+        if agent.velocity_e:
+            intensity += abs(agent.velocity_e["vx"])
+        if agent.velocity_w:
+            intensity += abs(agent.velocity_w["vx"])
+        intensities.append(intensity)
+    return intensities
 
-# Now run advection with this initialization
-run_advection(h_velocities, v_velocities, steps=8, dt=2.0)
+def plot_heatmap(agents, title="Flow Heatmap", cmap='viridis'):
+    """Create a heatmap visualization of flow intensities"""
+    # Calculate intensity values
+    intensities = compute_cell_intensities(agents)
+    
+    # Create a DataFrame with intensities
+    df = pd.DataFrame({"intensity": intensities})
+    
+    # Create a GeoDataFrame using agent geometries
+    gdf = gpd.GeoDataFrame(df, geometry=[agent.geometry for agent in agents])
+    
+    # Create the plot
+    fig, ax = plt.subplots(figsize=(12, 12))
+    gdf.plot(column="intensity", cmap=cmap, legend=True, edgecolor="black", ax=ax)
+    
+    # Mark source cells with a red outline
+    for agent in agents:
+        if agent.source:
+            x, y = agent.geometry.exterior.xy
+            ax.plot(x, y, color='red', linewidth=2)
+    
+    ax.set_title(title)
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_aspect("equal", adjustable="box")
+    plt.tight_layout()
+    plt.show()
+
+def run_projection_only(h_velocities, v_velocities, steps=20, projection_iters=20):
+    """Run simulation with only projection steps (no advection)"""
+    print(f"Running {steps} projection-only steps with {projection_iters} iterations per step")
+    
+    # Visualize initial state with heatmap
+    plot_heatmap(agents, "Initial State Before Projection")
+    
+    for step in range(steps):
+        print(f"Step {step+1}/{steps}")
+        
+        # Skip advection step - only run projection
+        h_velocities, v_velocities = project_velocities(h_velocities, v_velocities, projection_iters)
+        
+        # Visualize every few steps
+        if (step+1) % 5 == 0 or step == steps-1:
+            plot_heatmap(agents, f"After {step+1} Projection-Only Steps")
+    
+    return h_velocities, v_velocities
+
+# Create and initialize the grid
+agents = create_grid(10, 10)
+h_velocities, v_velocities = assign_edge_velocities(agents)
+initialize_source_velocities(agents, v_velocities, 2.0)
+set_boundary_conditions(h_velocities, v_velocities)
+
+# Create global edges dictionary
+global_edges = create_global_edges_dict(h_velocities, v_velocities)
+
+# Run projection-only simulation with heatmap visualization
+h_velocities, v_velocities = run_projection_only(h_velocities, v_velocities, steps=10, projection_iters=30)
 
 
