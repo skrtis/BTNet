@@ -499,7 +499,7 @@ class FlowModel(mesa.Model):
 # STEP 10: Run the Simulation Loop and Produce Diagnostics
 #############################################
 model = FlowModel()
-num_steps = 100
+num_steps = 5
 
 # Skip initial projection phase entirely
 # Start directly with advection-only simulation
