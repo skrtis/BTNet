@@ -2,7 +2,6 @@ import json
 from shapely.geometry import Polygon
 import matplotlib.pyplot as plt
 import numpy as np
-
 class FlowPolygonAgent:
     def __init__(self, unique_id, geometry, row, col):
         self.unique_id = unique_id
@@ -53,16 +52,36 @@ def transform_indices(grid_data):
         transformed.append((col_new, row_new, clam_presence))
     return transformed
 
-def create_malpeque_grid(grid_data, grid_width=62, grid_height=65):
-    """Create a grid with squares at the specified tile indices"""
-    grid_agents = []
+def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid_height=65):
+    """
+    Create a grid of agents with options for complete or partial grid
+    
+    Parameters:
+    -----------
+    transformed_data : list
+        List of (col, row, clam_presence) tuples from transformed GeoJSON data
+    complete_grid : bool
+        If True, create a complete grid including non-water cells
+        If False, create only the water cells defined in transformed_data
+    grid_width : int
+        Width of the grid
+    grid_height : int
+        Height of the grid
+        
+    Returns:
+    --------
+    list of FlowPolygonAgent
+    """
+    # Extract existing coordinates
+    existing_coords = set((col, row) for col, row, _ in transformed_data)
+    
+    # Create a list for all agents
+    all_agents = []
     agent_id = 0
     
-    # Create squares at the specified locations
-    for col, row, clam_presence in grid_data:
-        # Check if coordinates are within grid bounds
+    # First, add all the existing agents from the GeoJSON data (water cells)
+    for col, row, clam_presence in transformed_data:
         if 0 <= col < grid_width and 0 <= row < grid_height:
-            # Create a 1x1 square with bottom-left corner at (col, row)
             square = Polygon([
                 (col, row),        # Bottom-left corner
                 (col+1, row),      # Bottom-right corner
@@ -72,60 +91,177 @@ def create_malpeque_grid(grid_data, grid_width=62, grid_height=65):
             
             agent = FlowPolygonAgent(agent_id, square, row, col)
             agent.clam_presence = clam_presence  # Set clam presence from GeoJSON
-            agent.water = True  # All cells are water
+            agent.water = True  # All these cells are water
             
-            grid_agents.append(agent)
+            all_agents.append(agent)
             agent_id += 1
     
-    print(f"Created {len(grid_agents)} FlowPolygonAgent instances in a {grid_width}x{grid_height} grid")
-    return grid_agents
-
-def visualize_malpeque_grid(grid_agents, grid_width=62, grid_height=65):
-    """Visualize the Malpeque Bay grid"""
-    plt.figure(figsize=(15, 15))
+    # If complete_grid is True, add missing cells as non-water cells
+    if complete_grid:
+        for col in range(grid_width):
+            for row in range(grid_height):
+                if (col, row) not in existing_coords:
+                    square = Polygon([
+                        (col, row),
+                        (col+1, row),
+                        (col+1, row+1),
+                        (col, row+1)
+                    ])
+                    
+                    agent = FlowPolygonAgent(agent_id, square, row, col)
+                    agent.water = False  # These cells are not water
+                    agent.clam_presence = False  # No clams in non-water cells
+                    
+                    all_agents.append(agent)
+                    agent_id += 1
     
-    # Plot each agent
-    for agent in grid_agents:
-        x, y = agent.geometry.exterior.xy
-        plt.plot(x, y, 'k-', linewidth=0.5)
-        
-        # Color based on cell properties
-        if agent.clam_presence:
-            color = 'green'
-            alpha = 0.5
-        else:
-            color = 'skyblue'
-            alpha = 0.3
+    # Print summary
+    if complete_grid:
+        print(f"Created complete grid with {len(all_agents)} cells:")
+        print(f" - {sum(1 for a in all_agents if a.water)} water cells")
+        print(f" - {sum(1 for a in all_agents if not a.water)} non-water cells")
+        print(f" - {sum(1 for a in all_agents if a.clam_presence)} cells with clam presence")
+    else:
+        print(f"Created Malpeque Bay grid with {len(all_agents)} water cells")
+        print(f" - {sum(1 for a in all_agents if a.clam_presence)} cells with clam presence")
+    
+    return all_agents
+
+def assign_edge_velocities(agents):
+    """Assign velocity references to each agent's edges"""
+    import math
+    
+    n_rows = max(agent.row for agent in agents) + 1
+    n_cols = max(agent.col for agent in agents) + 1
+    
+    # Create dictionaries to store velocities
+    h_velocities = {}  # Horizontal edges (stores vertical velocity)
+    v_velocities = {}  # Vertical edges (stores horizontal velocity)
+    
+    # Initialize all velocities to zero
+    for row in range(n_rows+1):  # +1 for bottom edge of bottom row
+        for col in range(n_cols):
+            h_velocities[(row, col)] = {"vy": 0.0, "locked": False}
             
-        plt.fill(x, y, alpha=alpha, color=color)
+    for row in range(n_rows):
+        for col in range(n_cols+1):  # +1 for right edge of rightmost column
+            v_velocities[(row, col)] = {"vx": 0.0, "locked": False}
     
-    # Create a legend
-    from matplotlib.patches import Patch
-    legend_elements = [
-        Patch(facecolor='skyblue', alpha=0.3, edgecolor='k', label='Water'),
-        Patch(facecolor='green', alpha=0.5, edgecolor='k', label='Clam Presence')
-    ]
-    plt.legend(handles=legend_elements, loc='upper right')
+    # Lock grid boundary edges
+    boundary_edges_count = 0
     
-    # Set plot bounds and labels
-    plt.xlim(-1, grid_width+1)
-    plt.ylim(-1, grid_height+1)
-    plt.title("Malpeque Bay Grid")
-    plt.xlabel("Column")
-    plt.ylabel("Row")
-    plt.grid(True, linestyle='--', alpha=0.4)
-    plt.axis('equal')
-    plt.savefig('malpeque_grid.png', dpi=300, bbox_inches='tight')
-    plt.show()
+    # Lock top and bottom horizontal edges
+    for col in range(n_cols):
+        # Top boundary
+        h_velocities[(0, col)]["locked"] = True
+        boundary_edges_count += 1
+        
+        # Bottom boundary
+        h_velocities[(n_rows, col)]["locked"] = True
+        boundary_edges_count += 1
+    
+    # Lock left and right vertical edges
+    for row in range(n_rows):
+        # Left boundary
+        v_velocities[(row, 0)]["locked"] = True
+        boundary_edges_count += 1
+        
+        # Right boundary
+        v_velocities[(row, n_cols)]["locked"] = True
+        boundary_edges_count += 1
+            
+    # Assign velocity references to agents
+    for agent in agents:
+        # North edge
+        agent.velocity_n = h_velocities[(agent.row, agent.col)]
+        
+        # South edge
+        agent.velocity_s = h_velocities[(agent.row+1, agent.col)]
+        
+        # East edge
+        agent.velocity_e = v_velocities[(agent.row, agent.col+1)]
+        
+        # West edge
+        agent.velocity_w = v_velocities[(agent.row, agent.col)]
+    
+    # Define source cells by coordinates (col, row)
+    source_coords = [(51, 45), (52, 44), (53, 43), (54, 42), (55, 41)]
+    
+    # Set and lock velocities for land cells
+    land_cells_count = 0
+    water_cells_count = 0
+    source_cells_count = 0
+    
+    for agent in agents:
+        if (agent.col, agent.row) in source_coords:
+            # Handle source cells
+            agent.source = True
+            source_cells_count += 1
+            continue  # Skip to next agent, we'll handle source cells separately
+        
+        if hasattr(agent, 'water'):
+            if not agent.water:
+                # Land cells: Set edges to zero and lock them
+                land_cells_count += 1
+                
+                if agent.velocity_n:
+                    agent.velocity_n["vy"] = 0.0
+                    agent.velocity_n["locked"] = True
+                    
+                if agent.velocity_s:
+                    agent.velocity_s["vy"] = 0.0
+                    agent.velocity_s["locked"] = True
+                    
+                if agent.velocity_e:
+                    agent.velocity_e["vx"] = 0.0
+                    agent.velocity_e["locked"] = True
+                    
+                if agent.velocity_w:
+                    agent.velocity_w["vx"] = 0.0
+                    agent.velocity_w["locked"] = True
+            else:
+                # Regular water cells: Initialize to zero, keep unlocked
+                water_cells_count += 1
+                
+                # Edges already initialized to zero and unlocked above,
+                # no additional action needed here
+    
+    # Set source velocities with a bearing of 140 degrees and magnitude of 1.0
+    bearing_degrees = 140
+    magnitude = 1.0
+    
+    # Calculate injection vector components
+    br = math.radians(360 - bearing_degrees)
+    inj_vx = magnitude * math.cos(br)
+    inj_vy = magnitude * math.sin(br)
+    print(f"Source injection vector: ({inj_vx:.2f}, {inj_vy:.2f}) with bearing {bearing_degrees}°")
+    
+    # Set source velocities
+    for agent in agents:
+        if (agent.col, agent.row) in source_coords:
+            # Set velocities on all edges and lock them
+            if agent.velocity_n:
+                agent.velocity_n["vy"] = inj_vy
+                agent.velocity_n["locked"] = True
+                
+            if agent.velocity_s:
+                agent.velocity_s["vy"] = inj_vy
+                agent.velocity_s["locked"] = True
+                
+            if agent.velocity_e:
+                agent.velocity_e["vx"] = inj_vx
+                agent.velocity_e["locked"] = True
+                
+            if agent.velocity_w:
+                agent.velocity_w["vx"] = inj_vx
+                agent.velocity_w["locked"] = True
+    
+    # Print summary
+    print(f"Velocity assignment summary:")
+    print(f" - {water_cells_count} water cells (initialized to zero, unlocked)")
+    print(f" - {land_cells_count} land cells (set to zero, locked)")
+    print(f" - {source_cells_count} source cells (set to ({inj_vx:.2f}, {inj_vy:.2f}), locked)")
+    print(f" - {boundary_edges_count} grid boundary edges (set to zero, locked)")
+    
+    return h_velocities, v_velocities
 
-# Generate and visualize the grid
-if __name__ == "__main__":
-    # Extract and transform indices
-    grid_data = extract_grid_indices("malpeque_tiles.geojson")
-    transformed_data = transform_indices(grid_data)
-    
-    # Create grid agents
-    grid_agents = create_malpeque_grid(transformed_data)
-    
-    # Visualize grid
-    visualize_malpeque_grid(grid_agents)
