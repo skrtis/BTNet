@@ -114,20 +114,34 @@ def visualize_grid(agents, h_velocities, v_velocities, title="Grid Visualization
     plt.tight_layout()
     plt.show()
 
-def initialize_source_velocities(agents, v_velocities, magnitude=2.0):
-    """Set source velocities at the left edge of source cells"""
-    # Find rightmost column
-    max_col = max(agent.col for agent in agents)
+def initialize_source_velocities(agents, h_velocities, v_velocities, magnitude=0.5):
+    """Set source velocities at the top edge of all cells in the top row"""
+    # Target the top row (row = 0)
+    top_row = 8
+    right_edge = 39
+    other_row = 4
+
+    # Count for reporting
+    source_cells = 0
     
-    # Set velocities on left edge of rightmost column cells
     for agent in agents:
-        if agent.col == max_col:
+        if agent.row == top_row:
+            # Mark as source cell
             agent.source = True
-            left_edge_key = (agent.row, agent.col)  # Left edge of source cell
-            v_velocities[left_edge_key]["vx"] = -magnitude  # Negative = leftward flow
+            source_cells += 1
+            
+            # Set south-flowing velocity at the top edge (which is also the north edge of this cell)
+            top_edge_key = (agent.row, agent.col)  # Top/north edge of source cell
+            h_velocities[top_edge_key]["vy"] = -magnitude  # Positive = downward flow
+            h_velocities[top_edge_key]["locked"] = True
+        elif agent.col == right_edge and agent.row == other_row:
+            agent.source = True
+            source_cells += 1
+            left_edge_key = (agent.row, agent.col)
+            v_velocities[left_edge_key]["vx"] = -magnitude*10
             v_velocities[left_edge_key]["locked"] = True
     
-    print(f"Set source velocities on left edge of source cells with magnitude {magnitude}")
+    print(f"Set source velocities on top edges of {source_cells} cells in row {top_row} with magnitude {magnitude}")
 
 def set_boundary_conditions(h_velocities, v_velocities):
     """Set boundary conditions - lock the domain boundary edges with zero velocity"""
@@ -145,13 +159,21 @@ def set_boundary_conditions(h_velocities, v_velocities):
             v_velocities[left_edge]["locked"] = True
     
     # Right boundary (x = max_col)
-    # Note: already set as sources in initialize_source_velocities
+    for row in range(max_row):
+        right_edge = (row, max_col)
+        if right_edge in v_velocities:
+            # Don't overwrite velocity if it's already non-zero
+            if abs(v_velocities[right_edge]["vx"]) < 1e-10:
+                v_velocities[right_edge]["vx"] = 0.0
+            v_velocities[right_edge]["locked"] = True
     
     # Top boundary (y = 0)
     for col in range(max_col):
         top_edge = (0, col)
         if top_edge in h_velocities:
-            h_velocities[top_edge]["vy"] = 0.0
+            # Don't overwrite velocity if it's already non-zero (for source cells)
+            if abs(h_velocities[top_edge]["vy"]) < 1e-10:
+                h_velocities[top_edge]["vy"] = 0.0
             h_velocities[top_edge]["locked"] = True
     
     # Bottom boundary (y = max_row)
@@ -437,6 +459,7 @@ def advect_velocities(h_velocities, v_velocities, dt=0.5):
 def project_velocities(h_velocities, v_velocities, iterations=20):
     """
     Make the velocity field divergence-free using red-black Gauss-Seidel
+    with alternating update order to reduce directional bias
     """
     # Get grid dimensions
     n_rows = max(agent.row for agent in agents) + 1
@@ -455,15 +478,20 @@ def project_velocities(h_velocities, v_velocities, iterations=20):
     
     print(f"Red cells: {len(red_agents)}, Black cells: {len(black_agents)}")
     
-    # Step 2: Perform red-black Gauss-Seidel iterations
+    # Step 2: Perform red-black Gauss-Seidel iterations with alternating order
     for iteration in range(iterations):
-        # Update red cells
-        for agent in red_agents:
-            project_single_cell(agent)
+        # Alternate the update order based on iteration number
+        if iteration % 2 == 0:
+            # Even iterations: red first, then black
+            update_order = [(red_agents, "red"), (black_agents, "black")]
+        else:
+            # Odd iterations: black first, then red
+            update_order = [(black_agents, "black"), (red_agents, "red")]
         
-        # Update black cells
-        for agent in black_agents:
-            project_single_cell(agent)
+        # Process cells in the determined order
+        for agents_to_update, color in update_order:
+            for agent in agents_to_update:
+                project_single_cell(agent)
     
     return h_velocities, v_velocities
 
@@ -482,11 +510,7 @@ def project_single_cell(agent):
     
     # Calculate total divergence - should be zero for incompressible flow
     divergence = flux_n + flux_e + flux_w + flux_s
-    
-    # If divergence is negligible, nothing to do
-    if abs(divergence) < 1e-10:
-        return
-    
+ 
     # Find valid edges that we can adjust (not locked)
     valid_edges = []
     if agent.velocity_n and not agent.velocity_n["locked"]:
@@ -586,12 +610,64 @@ def plot_heatmap(agents, title="Flow Heatmap", cmap='viridis'):
     plt.tight_layout()
     plt.show()
 
+def visualize_cell_velocity_vectors(agents, h_velocities, v_velocities, title="Cell Velocity Vectors", threshold=1e-6, scale=0.5):
+    """Create a visualization with arrows showing net flow direction in each cell"""
+    plt.figure(figsize=(10, 10))
+    
+    # Plot cell boundaries
+    for agent in agents:
+        xs, ys = agent.geometry.exterior.xy
+        plt.plot(xs, ys, color='black', linewidth=0.5)
+        
+        # Plot source cells with red fill
+        if agent.source:
+            plt.fill(xs, ys, color='red', alpha=0.2)
+    
+    # Calculate and plot velocity vectors for each cell
+    for agent in agents:
+        # Calculate center of cell
+        center_x = agent.col + 0.5
+        center_y = agent.row + 0.5
+        
+        # Calculate net velocity components
+        net_vx = 0.0
+        net_vy = 0.0
+        
+        # East edge (positive x direction) - vx > 0 means outflow
+        if agent.velocity_e:
+            net_vx += agent.velocity_e["vx"]
+        
+        # West edge (negative x direction) - vx > 0 means outflow from left cell, so inflow to this cell
+        if agent.velocity_w:
+            net_vx -= agent.velocity_w["vx"]
+        
+        # North edge (positive y direction) - vy > 0 means outflow
+        if agent.velocity_n:
+            net_vy += agent.velocity_n["vy"]
+        
+        # South edge (negative y direction) - vy > 0 means outflow from bottom cell, so inflow to this cell
+        if agent.velocity_s:
+            net_vy -= agent.velocity_s["vy"]
+        
+        # Only plot arrows with magnitude above threshold
+        magnitude = (net_vx**2 + net_vy**2)**0.5
+        if magnitude > threshold:
+            plt.arrow(center_x, center_y, scale * net_vx, scale * net_vy, 
+                     head_width=0.1*magnitude, head_length=0.15*magnitude, 
+                     fc='blue', ec='blue', width=0.02*magnitude)
+    
+    plt.title(title)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.axis('equal')
+    plt.tight_layout()
+    plt.show()
+
 def run_projection_only(h_velocities, v_velocities, steps=20, projection_iters=20):
     """Run simulation with only projection steps (no advection)"""
     print(f"Running {steps} projection-only steps with {projection_iters} iterations per step")
     
-    # Visualize initial state with heatmap
-    plot_heatmap(agents, "Initial State Before Projection")
+    # Visualize initial state with edge velocity vectors
+    visualize_grid(agents, h_velocities, v_velocities, "Initial State Before Projection", threshold=1e-8)
     
     for step in range(steps):
         print(f"Step {step+1}/{steps}")
@@ -600,21 +676,50 @@ def run_projection_only(h_velocities, v_velocities, steps=20, projection_iters=2
         h_velocities, v_velocities = project_velocities(h_velocities, v_velocities, projection_iters)
         
         # Visualize every few steps
-        if (step+1) % 5 == 0 or step == steps-1:
-            plot_heatmap(agents, f"After {step+1} Projection-Only Steps")
+        if (step+1) % 1 == 0 or step == steps-1:
+            visualize_grid(agents, h_velocities, v_velocities, 
+                         f"After {step+1} Projection-Only Steps", threshold=1e-8)
     
     return h_velocities, v_velocities
 
+def run_advection_projection_simulation(h_velocities, v_velocities, steps=20, dt=0.5, projection_iters=1):
+    """Run simulation alternating between advection and projection steps"""
+    print(f"Running {steps} steps of advection-projection with dt={dt}, projection_iters={projection_iters}")
+    
+    # Visualize initial state
+    visualize_grid(agents, h_velocities, v_velocities, "Initial State", threshold=1e-8)
+    
+    for step in range(steps):
+        print(f"Step {step+1}/{steps}")
+        
+        # Step 1: Advection
+        h_velocities, v_velocities = advect_velocities(h_velocities, v_velocities, dt)
+        
+        # Visualize after advection (optional)
+        if (step+1) % 5 == 0:
+            visualize_grid(agents, h_velocities, v_velocities, 
+                         f"After Step {step+1} (Advection)", threshold=1e-8)
+        
+        # Step 2: Projection (single iteration)
+        h_velocities, v_velocities = project_velocities(h_velocities, v_velocities, projection_iters)
+        
+        # Visualize after projection
+        if (step+1) % 1 == 0 or step == steps-1:
+            visualize_grid(agents, h_velocities, v_velocities, 
+                         f"After Step {step+1} (Full)", threshold=1e-8)
+    
+    return h_velocities, v_velocities
+
+
 # Create and initialize the grid
-agents = create_grid(10, 10)
+agents = create_grid(9, 40)
 h_velocities, v_velocities = assign_edge_velocities(agents)
-initialize_source_velocities(agents, v_velocities, 2.0)
+initialize_source_velocities(agents, h_velocities, v_velocities, 0.5)
 set_boundary_conditions(h_velocities, v_velocities)
 
 # Create global edges dictionary
 global_edges = create_global_edges_dict(h_velocities, v_velocities)
 
-# Run projection-only simulation with heatmap visualization
-h_velocities, v_velocities = run_projection_only(h_velocities, v_velocities, steps=10, projection_iters=30)
-
+# Run alternating advection-projection simulation
+h_velocities, v_velocities = run_advection_projection_simulation(h_velocities, v_velocities, steps=20, dt=0.5, projection_iters=1)
 
