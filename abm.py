@@ -84,7 +84,7 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
             
         vx = vel["vx"]
         # Plot as red arrow at vertical edge (col, row+0.5)
-        if abs(vx) > 0.01:  # Only plot if velocity is significant
+        if abs(vx) > 1e-10:  # Only plot if velocity is significant
             ax.arrow(col, row+0.5, vx*0.5, 0, 
                      head_width=0.1, head_length=0.05, fc='red', ec='red', 
                      length_includes_head=True)
@@ -97,7 +97,7 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
             
         vy = vel["vy"]
         # Plot as green arrow at horizontal edge (col+0.5, row)
-        if abs(vy) > 0.01:  # Only plot if velocity is significant
+        if abs(vy) > 1e-10:  # Only plot if velocity is significant
             ax.arrow(col+0.5, row, 0, vy*0.5, 
                      head_width=0.1, head_length=0.05, fc='green', ec='green', 
                      length_includes_head=True)
@@ -185,13 +185,13 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
             vy /= count_y
         
         # Plot the cell-centered velocity vector
-        if (abs(vx) > 0.01 or abs(vy) > 0.01):
+        if (abs(vx) > 1e-10 or abs(vy) > 1e-10):
             # Cell center coordinates
             center_x = col + 0.5
             center_y = row + 0.5
             
-            # Scale factor for vector visibility
-            scale = 0.5
+            # Scale factor for specific vector visibility
+            scale = 1
             
             # Plot the arrow
             ax.arrow(center_x, center_y, vx * scale, vy * scale,
@@ -260,11 +260,14 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
     return fig
 
 run_simulation(h_velocities, v_velocities, total_agents, 
-                  num_iterations=400, 
+                  num_iterations=100, 
                   advection_loops=1, 
-                  projection_loops=5,
-                  plot_interval=100, 
-                  dt=0.5,
+                  projection_loops=10,
+                  plot_interval=5, 
+                  overrelaxation=1.5,
+                  dt=0.2,
                   visualize_fn=visualize_flow,
                   save_plots=True,
                   output_dir="./output")
+
+

@@ -114,7 +114,7 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
                     agent = FlowPolygonAgent(agent_id, square, row, col)
                     agent.water = False  # These cells are not water
                     agent.clam_presence = False  # No clams in non-water cells
-                    agent.concentrationf = 0.0
+                    agent.concentration = 0.0
                     
                     all_agents.append(agent)
                     agent_id += 1
@@ -150,7 +150,7 @@ def assign_edge_velocities(agents):
     for row in range(n_rows):
         for col in range(n_cols+1):  # +1 for right edge of rightmost column
             v_velocities[(row, col)] = {"vx": 0.0, "locked": False}
-    
+   
     # Lock grid boundary edges
     boundary_edges_count = 0
     
@@ -189,8 +189,8 @@ def assign_edge_velocities(agents):
         agent.velocity_w = v_velocities[(agent.row, agent.col)]
     
     # Define source cells by coordinates (col, row)
-    source_coords = [(51, 45), (52, 44), (53, 43), (54, 42), (55, 41)]
-    vert_source_coords = [(44,47),(45,47),(46,46),(47,46)]
+    source_coords = [(51, 45), (52, 44), (53, 43)]
+    vert_source_coords = [] 
     
     # Set and lock velocities for land cells
     land_cells_count = 0
@@ -233,7 +233,7 @@ def assign_edge_velocities(agents):
     
     # Set source velocities with a bearing of 140 degrees and magnitude of 1.0
     bearing_degrees = 160
-    magnitude = 1.0
+    magnitude = 3.0
     
     # Calculate injection vector components
     br = math.radians(360 - bearing_degrees)
@@ -241,8 +241,8 @@ def assign_edge_velocities(agents):
     inj_vy = magnitude * math.sin(br)
     print(f"Source injection vector: ({inj_vx:.2f}, {inj_vy:.2f}) with bearing {bearing_degrees}°")
 
-    bearing_degrees_two = 120
-    magnitude_two = 1.0
+    bearing_degrees_two = 160
+    magnitude_two = 1.0 
     br2 = math.radians(360 - bearing_degrees_two)
     inj_vx2 = magnitude_two * math.cos(br2)
     inj_vy2 = magnitude_two * math.sin(br2)

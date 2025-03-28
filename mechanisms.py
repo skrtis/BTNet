@@ -124,8 +124,6 @@ def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
 
 
 
-
-
 def advect_velocities_step1(h_velocities, v_velocities,agents):
     """Step 1 of advection: Create 2D arrays for horizontal and vertical velocities"""
     # Get grid dimensions
@@ -301,6 +299,12 @@ def advect_velocities_step3(h_vel_grid, v_vel_grid, h_secondary_vx, v_secondary_
             # Calculate departure point by backtracking
             x_dep = x - dt * vx
             y_dep = y - dt * vy
+
+            # Check if departure point is out of bounds
+            if (x_dep < 0 or x_dep > n_cols_h - 1 or 
+                y_dep - 0.5 < 0 or y_dep - 0.5 > n_rows - 1):
+                # Keep the original velocity if backtracking goes out of bounds
+                continue  # Skip interpolation, keeping the original value 
             
             # Find grid cell containing departure point
             x_floor = int(x_dep - 0.5)  # Adjust for staggering
@@ -371,7 +375,7 @@ def advect_velocities(h_velocities, v_velocities, agents,dt=0.5):
     # update velocities
     return update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_vel_grid_new)
 
-def project_velocities(h_velocities, v_velocities, agents, iterations=20):
+def project_velocities(h_velocities, v_velocities, agents, overrelaxation, iterations=20):
     """
     Make the velocity field divergence-free using red-black Gauss-Seidel
     with alternating update order to reduce directional bias
@@ -406,11 +410,11 @@ def project_velocities(h_velocities, v_velocities, agents, iterations=20):
         # Process cells in the determined order
         for agents_to_update, color in update_order:
             for agent in agents_to_update:
-                project_single_cell(agent)
+                project_single_cell(agent, overrelaxation=1.0)
     
     return h_velocities, v_velocities
 
-def project_single_cell(agent):
+def project_single_cell(agent,overrelaxation=1.0):
     """Apply projection to a single cell to make it divergence-free"""
     # Calculate the net flux (divergence)
     # Outflow is positive, inflow is negative
@@ -425,6 +429,8 @@ def project_single_cell(agent):
     
     # Calculate total divergence - should be zero for incompressible flow
     divergence = flux_n + flux_e + flux_w + flux_s
+
+    divergence *= overrelaxation
  
     # Find valid edges that we can adjust (not locked)
     valid_edges = []
@@ -462,6 +468,7 @@ def run_simulation(h_velocities, v_velocities, agents,
                   advection_loops=1, 
                   projection_loops=20,
                   plot_interval=10, 
+                  overrelaxation=1.0,
                   dt=0.5,
                   visualize_fn=None,
                   save_plots=False,
@@ -513,7 +520,7 @@ def run_simulation(h_velocities, v_velocities, agents,
         # Perform projection steps to enforce incompressibility
         for _ in range(projection_loops):
             h_velocities, v_velocities = project_velocities(
-                h_velocities, v_velocities, agents, iterations=1
+                h_velocities, v_velocities, agents, overrelaxation, iterations=1
             )
         # Perform multiple advection steps if specified
         for _ in range(advection_loops):
