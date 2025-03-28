@@ -2,6 +2,7 @@ import json
 from shapely.geometry import Polygon
 import matplotlib.pyplot as plt
 import numpy as np
+import random
 class FlowPolygonAgent:
     def __init__(self, unique_id, geometry, row, col):
         self.unique_id = unique_id
@@ -13,6 +14,7 @@ class FlowPolygonAgent:
         self.source = False
         self.clam_presence = False
         self.water = True
+        self.concentration = 0.0
         
         # Velocities on edges (similar to mechanisms.py)
         self.velocity_n = None  # North edge
@@ -92,6 +94,7 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
             agent = FlowPolygonAgent(agent_id, square, row, col)
             agent.clam_presence = clam_presence  # Set clam presence from GeoJSON
             agent.water = True  # All these cells are water
+            agent.concentration = random.uniform(0.0, 100.0)  # Random initial concentration
             
             all_agents.append(agent)
             agent_id += 1
@@ -111,6 +114,7 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
                     agent = FlowPolygonAgent(agent_id, square, row, col)
                     agent.water = False  # These cells are not water
                     agent.clam_presence = False  # No clams in non-water cells
+                    agent.concentrationf = 0.0
                     
                     all_agents.append(agent)
                     agent_id += 1
@@ -186,6 +190,7 @@ def assign_edge_velocities(agents):
     
     # Define source cells by coordinates (col, row)
     source_coords = [(51, 45), (52, 44), (53, 43), (54, 42), (55, 41)]
+    vert_source_coords = [(44,47),(45,47),(46,46),(47,46)]
     
     # Set and lock velocities for land cells
     land_cells_count = 0
@@ -193,7 +198,7 @@ def assign_edge_velocities(agents):
     source_cells_count = 0
     
     for agent in agents:
-        if (agent.col, agent.row) in source_coords:
+        if (agent.col, agent.row) in source_coords or (agent.col, agent.row) in vert_source_coords:
             # Handle source cells
             agent.source = True
             source_cells_count += 1
@@ -227,7 +232,7 @@ def assign_edge_velocities(agents):
                 # no additional action needed here
     
     # Set source velocities with a bearing of 140 degrees and magnitude of 1.0
-    bearing_degrees = 140
+    bearing_degrees = 160
     magnitude = 1.0
     
     # Calculate injection vector components
@@ -235,6 +240,13 @@ def assign_edge_velocities(agents):
     inj_vx = magnitude * math.cos(br)
     inj_vy = magnitude * math.sin(br)
     print(f"Source injection vector: ({inj_vx:.2f}, {inj_vy:.2f}) with bearing {bearing_degrees}°")
+
+    bearing_degrees_two = 120
+    magnitude_two = 1.0
+    br2 = math.radians(360 - bearing_degrees_two)
+    inj_vx2 = magnitude_two * math.cos(br2)
+    inj_vy2 = magnitude_two * math.sin(br2)
+    print(f"Source injection vector: ({inj_vx2:.2f}, {inj_vy2:.2f}) with bearing {bearing_degrees_two}°")
     
     # Set source velocities
     for agent in agents:
@@ -254,6 +266,23 @@ def assign_edge_velocities(agents):
                 
             if agent.velocity_w:
                 agent.velocity_w["vx"] = inj_vx
+                agent.velocity_w["locked"] = True
+        if (agent.col, agent.row) in vert_source_coords:
+            # Set velocities on all edges and lock them
+            if agent.velocity_n:
+                agent.velocity_n["vy"] = inj_vy2
+                agent.velocity_n["locked"] = True
+                
+            if agent.velocity_s:
+                agent.velocity_s["vy"] = inj_vy2
+                agent.velocity_s["locked"] = True
+                
+            if agent.velocity_e:
+                agent.velocity_e["vx"] = inj_vx2
+                agent.velocity_e["locked"] = True
+                
+            if agent.velocity_w:
+                agent.velocity_w["vx"] = inj_vx2
                 agent.velocity_w["locked"] = True
     
     # Print summary

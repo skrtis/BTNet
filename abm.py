@@ -32,7 +32,10 @@ h_velocities, v_velocities = assign_edge_velocities(total_agents)
 
 def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
     """
-    Visualize the staggered grid flow field
+    Visualize the flow field with three panels:
+    1) Original staggered grid visualization
+    2) Cell-centered velocity vectors
+    3) Concentration values
     
     Parameters:
     -----------
@@ -49,10 +52,13 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
     n_rows = max(agent.row for agent in agents) + 1
     n_cols = max(agent.col for agent in agents) + 1
     
-    # Create a new figure
-    plt.figure(figsize=(14, 10))
+    # Create figure with three subplots
+    fig, axs = plt.subplots(1, 3, figsize=(24, 8))
     
-    # 1. Draw the grid cells (water, non-water, sources)
+    # 1) FIRST SUBPLOT: Original staggered grid visualization
+    ax = axs[0]
+    
+    # Draw the grid cells (water, non-water, sources)
     for agent in agents:
         row, col = agent.row, agent.col
         
@@ -68,9 +74,7 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
             
         # Draw the cell as a rectangle
         rect = plt.Rectangle((col, row), 1, 1, facecolor=color, edgecolor='black', alpha=0.3)
-        plt.gca().add_patch(rect)
-    
-    # 2. Plot velocity vectors
+        ax.add_patch(rect)
     
     # Plot horizontal velocities (at vertical edges)
     for (row, col), vel in v_velocities.items():
@@ -81,7 +85,7 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
         vx = vel["vx"]
         # Plot as red arrow at vertical edge (col, row+0.5)
         if abs(vx) > 0.01:  # Only plot if velocity is significant
-            plt.arrow(col, row+0.5, vx*0.5, 0, 
+            ax.arrow(col, row+0.5, vx*0.5, 0, 
                      head_width=0.1, head_length=0.05, fc='red', ec='red', 
                      length_includes_head=True)
     
@@ -94,26 +98,29 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
         vy = vel["vy"]
         # Plot as green arrow at horizontal edge (col+0.5, row)
         if abs(vy) > 0.01:  # Only plot if velocity is significant
-            plt.arrow(col+0.5, row, 0, vy*0.5, 
+            ax.arrow(col+0.5, row, 0, vy*0.5, 
                      head_width=0.1, head_length=0.05, fc='green', ec='green', 
                      length_includes_head=True)
     
-    # Add special highlight for source cells and their vectors
+    # Add special highlight for source cells
     for agent in agents:
         if agent.source:
             row, col = agent.row, agent.col
-            plt.gca().add_patch(plt.Rectangle((col, row), 1, 1, 
-                                              facecolor='none', 
-                                              edgecolor='red', 
-                                              linewidth=2))
+            ax.add_patch(plt.Rectangle((col, row), 1, 1, 
+                                       facecolor='none', 
+                                       edgecolor='red', 
+                                       linewidth=2))
     
-    # Set plot properties
-    plt.grid(True)
-    plt.axis('equal')
-    plt.xlim(0, n_cols)
-    plt.ylim(0, n_rows)
+    # Configure first subplot
+    ax.grid(True)
+    ax.set_aspect('equal')
+    ax.set_xlim(0, n_cols)
+    ax.set_ylim(0, n_rows)
+    ax.set_title('Staggered Grid Flow Visualization')
+    ax.set_xlabel('Column')
+    ax.set_ylabel('Row')
     
-    # Add legend
+    # Add legend to first subplot
     source_patch = plt.Rectangle((0, 0), 1, 1, facecolor='orange', alpha=0.3)
     land_patch = plt.Rectangle((0, 0), 1, 1, facecolor='gray', alpha=0.3)
     water_patch = plt.Rectangle((0, 0), 1, 1, facecolor='white', alpha=0.3)
@@ -121,23 +128,142 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0):
     h_vel_arrow = plt.Line2D([0], [0], color='red', lw=2)
     v_vel_arrow = plt.Line2D([0], [0], color='green', lw=2)
     
-    plt.legend([source_patch, land_patch, water_patch, clam_patch, h_vel_arrow, v_vel_arrow],
-               ['Source', 'Land', 'Water', 'Clams', 'Horizontal velocity', 'Vertical velocity'],
-               loc='upper right')
-    
-    plt.title(f'Flow Visualization - Iteration {iteration}')
-    plt.xlabel('Column')
-    plt.ylabel('Row')
-    
-    # Adjust layout to make room for legend
-    plt.tight_layout()
+    ax.legend([source_patch, land_patch, water_patch, clam_patch, h_vel_arrow, v_vel_arrow],
+              ['Source', 'Land', 'Water', 'Clams', 'Horizontal velocity', 'Vertical velocity'],
+              loc='upper right', fontsize='small')
 
+    # 2) SECOND SUBPLOT: Cell-centered velocity vectors
+    ax = axs[1]
+    
+    # First draw the same grid background for reference
+    for agent in agents:
+        row, col = agent.row, agent.col
+        
+        # Determine cell color based on cell type
+        if agent.source:
+            color = 'orange'
+        elif not agent.water:
+            color = 'gray'
+        elif agent.clam_presence:
+            color = 'lightblue'
+        else:
+            color = 'white'
+            
+        # Draw the cell as a rectangle
+        rect = plt.Rectangle((col, row), 1, 1, facecolor=color, edgecolor='black', alpha=0.3)
+        ax.add_patch(rect)
+    
+    # Calculate and plot cell-centered velocities for water cells
+    for agent in agents:
+        if not hasattr(agent, "water") or not agent.water:
+            continue
+        
+        row, col = agent.row, agent.col
+        
+        # Calculate average x-velocity from adjacent vertical edges
+        vx = 0.0
+        count_x = 0
+        if agent.velocity_w:
+            vx += agent.velocity_w["vx"]
+            count_x += 1
+        if agent.velocity_e:
+            vx += agent.velocity_e["vx"]
+            count_x += 1
+        if count_x > 0:
+            vx /= count_x
+        
+        # Calculate average y-velocity from adjacent horizontal edges
+        vy = 0.0
+        count_y = 0
+        if agent.velocity_n:
+            vy += agent.velocity_n["vy"]
+            count_y += 1
+        if agent.velocity_s:
+            vy += agent.velocity_s["vy"]
+            count_y += 1
+        if count_y > 0:
+            vy /= count_y
+        
+        # Plot the cell-centered velocity vector
+        if (abs(vx) > 0.01 or abs(vy) > 0.01):
+            # Cell center coordinates
+            center_x = col + 0.5
+            center_y = row + 0.5
+            
+            # Scale factor for vector visibility
+            scale = 0.5
+            
+            # Plot the arrow
+            ax.arrow(center_x, center_y, vx * scale, vy * scale,
+                    head_width=0.1, head_length=0.05, fc='blue', ec='blue',
+                    length_includes_head=True)
+    
+    # Configure second subplot
+    ax.grid(True)
+    ax.set_aspect('equal')
+    ax.set_xlim(0, n_cols)
+    ax.set_ylim(0, n_rows)
+    ax.set_title('Cell-Centered Velocity Vectors')
+    ax.set_xlabel('Column')
+    ax.set_ylabel('Row')
+    
+    # Add simple legend to second subplot
+    center_vel_arrow = plt.Line2D([0], [0], color='blue', lw=2)
+    ax.legend([center_vel_arrow], ['Cell-centered velocity'], 
+              loc='upper right', fontsize='small')
+
+    # 3) THIRD SUBPLOT: Concentration values
+    ax = axs[2]
+    
+    # Create a grid for concentrations
+    concentration_grid = np.zeros((n_rows, n_cols))
+    
+    # Fill the grid with concentration values
+    for agent in agents:
+        if hasattr(agent, "concentration"):
+            concentration_grid[agent.row, agent.col] = agent.concentration
+    
+    # Use imshow to display concentration as a heatmap
+    # Transpose for proper orientation
+    im = ax.imshow(concentration_grid, origin='lower', cmap='viridis', 
+                  interpolation='nearest', aspect='equal',
+                  extent=[0, n_cols, 0, n_rows])
+    
+    # Add colorbar
+    cbar = fig.colorbar(im, ax=ax, label='Concentration')
+    
+    # Add cell outlines for reference (optional)
+    for i in range(n_cols + 1):
+        ax.axvline(i, color='gray', linewidth=0.5, alpha=0.3)
+    for i in range(n_rows + 1):
+        ax.axhline(i, color='gray', linewidth=0.5, alpha=0.3)
+    
+    # Mark non-water cells with crosshatching
+    for agent in agents:
+        if not hasattr(agent, "water") or not agent.water:
+            row, col = agent.row, agent.col
+            rect = plt.Rectangle((col, row), 1, 1, 
+                                fill=False, hatch='////', 
+                                edgecolor='black', alpha=0.7)
+            ax.add_patch(rect)
+    
+    # Configure third subplot
+    ax.set_title('Concentration Values')
+    ax.set_xlabel('Column')
+    ax.set_ylabel('Row')
+    ax.grid(False)
+    
+    # Overall figure configuration
+    plt.suptitle(f'Flow and Concentration Visualization - Iteration {iteration}', fontsize=16)
+    plt.tight_layout()
+    
+    return fig
 
 run_simulation(h_velocities, v_velocities, total_agents, 
-                  num_iterations=1, 
+                  num_iterations=400, 
                   advection_loops=1, 
-                  projection_loops=1,
-                  plot_interval=1, 
+                  projection_loops=5,
+                  plot_interval=100, 
                   dt=0.5,
                   visualize_fn=visualize_flow,
                   save_plots=True,
