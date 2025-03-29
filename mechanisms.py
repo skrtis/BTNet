@@ -5,6 +5,39 @@ import pandas as pd
 import geopandas as gpd
 import time
 
+def wind(agents,h_velocities,v_velocities):
+    """
+    Calculate wind velocity for each agent based on its position.
+    
+    Parameters:
+    -----------
+    agents : list
+        List of FlowPolygonAgent objects
+    h_velocities : dict
+        Dictionary of horizontal velocities at horizontal edges
+    v_velocities : dict
+        Dictionary of vertical velocities at vertical edges
+        
+    Returns:
+    --------
+    agents : list
+        Updated list of agents with wind velocity attributes
+    """
+    #randomized wind direction
+    wind_dir = np.random.choice(["N", "S", "E", "W"])
+    wind_speed =  np.random.uniform(0.1, 0.2)
+    for agent in agents:
+        if wind_dir == "N":
+            agent.velocity_n["vy"] += wind_speed
+        elif wind_dir == "S":
+            agent.velocity_s["vy"] -= wind_speed
+        elif wind_dir == "E":
+            agent.velocity_e["vx"] += wind_speed
+        elif wind_dir == "W":
+            agent.velocity_w["vx"] -= wind_speed
+    return agents
+
+
 def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
     """
     Advect concentration values stored at cell centers using semi-Lagrangian method.
@@ -86,6 +119,13 @@ def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
         x_dep = x - dt * vx
         y_dep = y - dt * vy
         
+        # Check if departure point is out of bounds
+        if (x_dep < 0 or x_dep >= n_cols or
+            y_dep < 0 or y_dep >= n_rows):
+            # Keep the original concentration if backtracking goes out of bounds
+            new_concentrations[agent] = agent.concentration
+            continue
+        
         # Find the cell containing the departure point
         x_floor = int(x_dep)
         y_floor = int(y_dep)
@@ -114,7 +154,8 @@ def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
         c_interp = c0 * (1 - y_frac) + c1 * y_frac
         
         # Store the new concentration value
-        new_concentrations[agent] = c_interp
+        blend = 0.6 
+        new_concentrations[agent] = ((1-blend)*agent.concentration) + blend*c_interp
     
     # Update all agent concentration values
     for agent, new_concentration in new_concentrations.items():
@@ -375,7 +416,7 @@ def advect_velocities(h_velocities, v_velocities, agents,dt=0.5):
     # update velocities
     return update_velocities_from_grid(h_velocities, v_velocities, h_vel_grid_new, v_vel_grid_new)
 
-def project_velocities(h_velocities, v_velocities, agents, overrelaxation, iterations=20):
+def project_velocities(h_velocities, v_velocities, agents, overrelaxation=1.5, iterations=10):
     """
     Make the velocity field divergence-free using red-black Gauss-Seidel
     with alternating update order to reduce directional bias
@@ -517,6 +558,9 @@ def run_simulation(h_velocities, v_velocities, agents,
     
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
+        # Update wind velocities
+        if iteration % 50 == 0:
+            agents = wind(agents,h_velocities,v_velocities)
         # Perform projection steps to enforce incompressibility
         for _ in range(projection_loops):
             h_velocities, v_velocities = project_velocities(
