@@ -427,14 +427,13 @@ def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmi
     
     return fig
 
-
 run_simulation(h_velocities, v_velocities, total_agents, 
-                  num_iterations=100, 
+                  num_iterations=200, 
                   advection_loops=1, 
                   projection_loops=10,
-                  plot_interval=5, 
-                  overrelaxation=1.8,
-                  dt=1,
+                  plot_interval=20, 
+                  overrelaxation=1.0,
+                  dt=0.1,
                   visualize_fn=visualize_concentration,
                   save_plots=True,
                   output_dir="./output")

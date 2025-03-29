@@ -82,7 +82,7 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
     all_agents = []
     agent_id = 0
 
-    concentration_location = (45,45)
+    concentration_location = (30,30)
     
     # First, add all the existing agents from the GeoJSON data (water cells)
     for col, row, clam_presence in transformed_data:
@@ -102,10 +102,10 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
             agent.water = True  # All these cells are water
             if (col, row) == concentration_location:
                 agent.concentration = 100.0
-            elif agent.clam_presence == False:
-                agent.concentration = random.uniform(0.0, 1)  # Random initial concentration, adding noise
-            else: 
-                agent.concentration = 0.0
+            elif agent.water == True and agent.clam_presence == False:
+                agent.concentration = 1e-2
+            else:
+                agent.concentration =0.0
             
             all_agents.append(agent)
             agent_id += 1
@@ -148,6 +148,7 @@ def assign_edge_velocities(agents):
     
     n_rows = max(agent.row for agent in agents) + 1
     n_cols = max(agent.col for agent in agents) + 1
+    print(f"Grid dimensions: {n_rows} rows, {n_cols} columns")
     
     # Create dictionaries to store velocities
     h_velocities = {}  # Horizontal edges (stores vertical velocity)
