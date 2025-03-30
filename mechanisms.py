@@ -5,9 +5,9 @@ import pandas as pd
 import geopandas as gpd
 import time
 
-from disease import concentration_spread, advect_concentrations
+from disease import advect_concentrations,drop_concentration
 
-def wind(agents,h_velocities,v_velocities):
+def wind(agents):
     """
     Calculate wind velocity for each agent based on its position.
     
@@ -27,8 +27,8 @@ def wind(agents,h_velocities,v_velocities):
     """
     #randomized wind direction
     wind_dir = np.random.choice(["N", "S", "E", "W"])
-    wind_speed =  np.random.uniform(0.1, 0.2)
-    for agent in agents:
+    for agent in agents: 
+        wind_speed =  np.random.uniform(0.00001,0.00005)
         if wind_dir == "N":
             agent.velocity_n["vy"] += wind_speed
         elif wind_dir == "S":
@@ -310,7 +310,7 @@ def project_velocities(h_velocities, v_velocities, agents, overrelaxation=1.5, i
         else:
             black_agents.append(agent)
     
-    print(f"Red cells: {len(red_agents)}, Black cells: {len(black_agents)}")
+    #print(f"Red cells: {len(red_agents)}, Black cells: {len(black_agents)}")
     
     # Step 2: Perform red-black Gauss-Seidel iterations with alternating order
     for iteration in range(iterations):
@@ -379,12 +379,15 @@ def project_single_cell(agent,overrelaxation=1.0):
             edge["vx"] -= multiplier * correction
 
 def run_simulation(h_velocities, v_velocities, agents, 
-                  num_iterations=100, 
-                  advection_loops=1, 
-                  projection_loops=20,
-                  plot_interval=10, 
-                  overrelaxation=1.0,
-                  dt=0.5,
+                  num_iterations, 
+                  advection_loops, 
+                  projection_loops,
+                  plot_interval, 
+                  overrelaxation,
+                  dt,
+                  drug_drop,
+                  drug_concentration,
+                  drug_drop_iteration,
                   visualize_fn=None,
                   save_plots=False,
                   output_dir="./output"):
@@ -423,7 +426,7 @@ def run_simulation(h_velocities, v_velocities, agents,
     """
     # Store initial state (iteration 0)
     if visualize_fn and plot_interval > 0:
-        visualize_fn(h_velocities, v_velocities, agents, 0)
+        visualize_fn(h_velocities, v_velocities, agents)
         plt.show()
         plt.close()
     
@@ -432,9 +435,13 @@ def run_simulation(h_velocities, v_velocities, agents,
     
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
+        if iteration == drug_drop_iteration:
+            # Drop drug concentration at specified location
+            agents = drop_concentration(agents, drug_concentration, drug_drop[0], drug_drop[1])
+            print(f"Dropping drug at iteration {iteration} at {drug_drop}")
+
         # Update wind velocities
-        if iteration % 50 == 0:
-            agents = wind(agents,h_velocities,v_velocities)
+        agents = wind(agents)
         # Perform projection steps to enforce incompressibility
         for _ in range(projection_loops):
             h_velocities, v_velocities = project_velocities(
@@ -447,6 +454,150 @@ def run_simulation(h_velocities, v_velocities, agents,
 
         #agents = concentration_spread(agents,dt=dt)
         agents = advect_concentrations(agents, h_velocities, v_velocities, dt=dt)
+
+        # Calculate velocity statistics more robustly
+        # Extract all velocity components into a single list for simpler max/min calculation
+        all_velocities = []
+        velocity_magnitudes = []
+        
+        # Get all velocity components from horizontal edges
+        for edge_dict in h_velocities.values():
+            vy = edge_dict.get("vy", 0)  # Primary component
+            all_velocities.append(vy)
+            velocity_magnitudes.append(abs(vy))
+            
+            if "vx" in edge_dict:  # Secondary component (if exists)
+                vx = edge_dict["vx"]
+                all_velocities.append(vx)
+                velocity_magnitudes.append(abs(vx))
+        
+        # Get all velocity components from vertical edges
+        for edge_dict in v_velocities.values():
+            vx = edge_dict.get("vx", 0)  # Primary component
+            all_velocities.append(vx)
+            velocity_magnitudes.append(abs(vx))
+            
+            if "vy" in edge_dict:  # Secondary component (if exists)
+                vy = edge_dict["vy"]
+                all_velocities.append(vy)
+                velocity_magnitudes.append(abs(vy))
+        
+        # Calculate overall stats
+        max_velocity = max(velocity_magnitudes) if velocity_magnitudes else 0
+        min_velocity = min(velocity_magnitudes) if velocity_magnitudes else 0
+        avg_velocity = sum(velocity_magnitudes) / len(velocity_magnitudes) if velocity_magnitudes else 0
+        
+        # Print simplified statistics
+        print(f"Iteration {iteration}: Max Velocity: {max_velocity:.4f}, Min Velocity: {min_velocity:.8f}, Avg Velocity: {avg_velocity:.8f}")
+
+        # Apply global dampening if average velocity exceeds threshold
+        threshold = 0.0008
+        target_avg = 0.0005
+        
+        if avg_velocity > threshold:
+            print(f"  Need dampening: current avg = {avg_velocity:.6f}, target = {target_avg:.6f}")
+            
+            # Apply progressive dampening that targets high velocities more aggressively
+            for key, edge_dict in h_velocities.items():
+                # Skip locked edges and edges connected to source cells
+                edge_locked = edge_dict.get("locked", False)
+                
+                # Check if this edge is part of a source cell
+                row, col = key
+                edge_is_source = False
+                for agent in agents:
+                    if hasattr(agent, "source") and agent.source:
+                        # Check if this edge belongs to the source cell
+                        if (agent.row == row or agent.row == row-1) and agent.col == col:
+                            edge_is_source = True
+                            break
+                
+                if not edge_locked and not edge_is_source:
+                    # Apply progressive dampening to each velocity component
+                    if "vy" in edge_dict:
+                        # Calculate a custom dampening factor based on velocity magnitude
+                        magnitude = abs(edge_dict["vy"])
+                        if magnitude > 0:
+                            # Progressive dampening: stronger for larger velocities
+                            # velocities > 0.005 get heavily dampened
+                            # velocities near average get moderately dampened
+                            # small velocities get lightly dampened
+                            factor = 1.0
+                            if magnitude > 0.005:
+                                factor = 0.3  # 70% reduction for very large velocities
+                            elif magnitude > 0.002:
+                                factor = 0.6  # 40% reduction for large velocities
+                            elif magnitude > threshold:
+                                factor = 0.8  # 20% reduction for above-threshold velocities
+                            else:
+                                factor = 0.9  # 10% reduction for smaller velocities
+                            
+                            edge_dict["vy"] *= factor
+                    
+                    if "vx" in edge_dict:
+                        magnitude = abs(edge_dict["vx"])
+                        if magnitude > 0:
+                            factor = 1.0
+                            if magnitude > 0.005:
+                                factor = 0.3
+                            elif magnitude > 0.002:
+                                factor = 0.6
+                            elif magnitude > threshold:
+                                factor = 0.8
+                            else:
+                                factor = 0.9
+                            
+                            edge_dict["vx"] *= factor
+            
+            # Apply the same progressive dampening to vertical velocities
+            for key, edge_dict in v_velocities.items():
+                # Skip locked edges and edges connected to source cells
+                edge_locked = edge_dict.get("locked", False)
+                
+                # Check if this edge is part of a source cell
+                row, col = key
+                edge_is_source = False
+                for agent in agents:
+                    if hasattr(agent, "source") and agent.source:
+                        # Check if this edge belongs to the source cell
+                        if agent.row == row and (agent.col == col or agent.col == col-1):
+                            edge_is_source = True
+                            break
+                
+                if not edge_locked and not edge_is_source:
+                    # Apply progressive dampening to each velocity component
+                    if "vx" in edge_dict:
+                        magnitude = abs(edge_dict["vx"])
+                        if magnitude > 0:
+                            factor = 1.0
+                            if magnitude > 0.005:
+                                factor = 0.3
+                            elif magnitude > 0.002:
+                                factor = 0.6
+                            elif magnitude > threshold:
+                                factor = 0.8
+                            else:
+                                factor = 0.9
+                            
+                            edge_dict["vx"] *= factor
+                    
+                    if "vy" in edge_dict:
+                        magnitude = abs(edge_dict["vy"])
+                        if magnitude > 0:
+                            factor = 1.0
+                            if magnitude > 0.005:
+                                factor = 0.3
+                            elif magnitude > 0.002:
+                                factor = 0.6
+                            elif magnitude > threshold:
+                                factor = 0.8
+                            else:
+                                factor = 0.9
+                            
+                            edge_dict["vy"] *= factor
+            
+            print(f"  Applied progressive dampening based on velocity magnitude")
+
         # Visualize if it's a plotting interval
         if visualize_fn and plot_interval > 0 and iteration % plot_interval == 0:
             print(f"Iteration {iteration}/{num_iterations}")

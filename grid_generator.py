@@ -15,7 +15,10 @@ class FlowPolygonAgent:
         self.clam_presence = False
         self.water = True
         self.concentration = 0.0
-        self.clam_count = 0
+        self.btn_concentration = 0.0
+        self.healthy_clams = 0
+        self.infected_clams = 0
+        self.dead_clams = 0
         
         # Velocities on edges (similar to mechanisms.py)
         self.velocity_n = None  # North edge
@@ -82,7 +85,6 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
     all_agents = []
     agent_id = 0
 
-    concentration_location = (30,30)
     
     # First, add all the existing agents from the GeoJSON data (water cells)
     for col, row, clam_presence in transformed_data:
@@ -98,14 +100,12 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
             agent.clam_presence = clam_presence  # Set clam presence from GeoJSON
             if agent.clam_presence == True:
                 agent.clam_count = 2500 # 5 clams per sq. meter. 
+                agent.btn_concentration = 0.0
+                agent.healthy_clams = 0
+                agent.infected_clams = 0
+                agent.dead_clams = 0
 
             agent.water = True  # All these cells are water
-            if (col, row) == concentration_location:
-                agent.concentration = 100.0
-            elif agent.water == True and agent.clam_presence == False:
-                agent.concentration = 1e-2
-            else:
-                agent.concentration =0.0
             
             all_agents.append(agent)
             agent_id += 1
@@ -125,7 +125,6 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
                     agent = FlowPolygonAgent(agent_id, square, row, col)
                     agent.water = False  # These cells are not water
                     agent.clam_presence = False  # No clams in non-water cells
-                    agent.concentration = 0.0
                     
                     all_agents.append(agent)
                     agent_id += 1
@@ -245,7 +244,7 @@ def assign_edge_velocities(agents):
     
     # Set source velocities with a bearing of 140 degrees and magnitude of 1.0
     bearing_degrees = 130
-    magnitude = 1 
+    magnitude = 0.0032
     
     # Calculate injection vector components
     br = math.radians(360 - bearing_degrees)
@@ -254,7 +253,7 @@ def assign_edge_velocities(agents):
     print(f"Source injection vector: ({inj_vx:.2f}, {inj_vy:.2f}) with bearing {bearing_degrees}°")
 
     bearing_degrees_two = 110 
-    magnitude_two = 1 
+    magnitude_two = 0.0032
     br2 = math.radians(360 - bearing_degrees_two)
     inj_vx2 = magnitude_two * math.cos(br2)
     inj_vy2 = magnitude_two * math.sin(br2)

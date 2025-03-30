@@ -11,7 +11,7 @@ from grid_generator import (
 )
 
 # Import the correct visualization function
-from abm import visualize_collocated
+from abm import visualize_concentration
 
 # Import mechanisms for simulation steps
 from mechanisms import advect_velocities, project_velocities
@@ -69,7 +69,7 @@ def run_multiple_steps(steps=10):
 def StaggeredVelocitiesPlot():
     """Component to display the staggered velocities plot"""
     # Create and return the visualization
-    fig = visualize_collocated(
+    fig = visualize_concentration(
         grid_data.value["h_velocities"], 
         grid_data.value["v_velocities"], 
         grid_data.value["agents"], 

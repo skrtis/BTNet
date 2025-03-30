@@ -96,7 +96,7 @@ def visualize_collocated(h_velocities, v_velocities, agents, iteration=0):
             center_y = row + 0.5
             
             # Scale factor for specific vector visibility
-            scale = 1
+            scale = 1e2
             
             # Plot the arrow
             ax.arrow(center_x, center_y, vx * scale, vy * scale,
@@ -357,7 +357,7 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0, vmin=None, v
     
     return fig
 
-def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmin=None, vmax=None):
+def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmin=0, vmax=None):
     """
     Visualize only the concentration values as a heatmap.
     
@@ -395,7 +395,7 @@ def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmi
     im = ax.imshow(concentration_grid, origin='lower', cmap='viridis', 
                   interpolation='nearest', aspect='equal',
                   extent=[0, n_cols, 0, n_rows],
-                  vmin=vmin, vmax=vmax)  # Set min and max values for color scale
+                  vmin=0, vmax=vmax)  # Set min and max values for color scale
     
     # Add colorbar
     cbar = fig.colorbar(im, ax=ax, label='Concentration')
@@ -411,7 +411,7 @@ def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmi
         if not hasattr(agent, "water") or not agent.water:
             row, col = agent.row, agent.col
             rect = plt.Rectangle((col, row), 1, 1, 
-                                fill=False, hatch='////', 
+                                fill=False, hatch='x', 
                                 edgecolor='black', alpha=0.7)
             ax.add_patch(rect)
     
@@ -428,12 +428,31 @@ def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmi
     return fig
 
 run_simulation(h_velocities, v_velocities, total_agents, 
-                  num_iterations=200, 
+                  num_iterations=500, 
                   advection_loops=1, 
-                  projection_loops=10,
-                  plot_interval=20, 
-                  overrelaxation=1.0,
-                  dt=0.1,
+                  projection_loops=30,
+                  plot_interval=100, 
+                  overrelaxation=1.5,
+                  dt=0.0001,
+                  drug_drop=(50,35),
+                  drug_concentration = 100,
+                  drug_drop_iteration=200,
                   visualize_fn=visualize_concentration,
                   save_plots=True,
-                  output_dir="./output")
+                  output_dir="./output")  
+""" 
+run_simulation(h_velocities, v_velocities, total_agents, 
+                  num_iterations=1000, 
+                  advection_loops=1, 
+                  projection_loops=30,
+                  plot_interval=100, 
+                  overrelaxation=1.5,
+                  dt=0.1,
+                  drug_drop=(50,35),
+                  drug_concentration = 100,
+                  drug_drop_iteration=300,
+                  visualize_fn=visualize_collocated,
+                  save_plots=True,
+                  output_dir="./output") """
+
+
