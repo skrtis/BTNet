@@ -123,7 +123,6 @@ def visualize_collocated(h_velocities, v_velocities, agents, iteration=0):
     
     return fig 
 
-
 def visualize_flow(h_velocities, v_velocities, agents, iteration=0, vmin=None, vmax=None):
     """
     Visualize the flow field with three panels:
@@ -358,6 +357,7 @@ def visualize_flow(h_velocities, v_velocities, agents, iteration=0, vmin=None, v
     return fig
 
 def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmin=0, vmax=None):
+
     """
     Visualize only the concentration values as a heatmap.
     
@@ -427,20 +427,106 @@ def visualize_concentration(h_velocities, v_velocities, agents, iteration=0, vmi
     
     return fig
 
+def visualize_btn(h_velocities, v_velocities, agents, iteration=0, vmin=0, vmax=None):
+    """
+    Visualize only the BTN concentration values as a heatmap.
+    
+    Parameters:
+    -----------
+    h_velocities : dict
+        Dictionary of horizontal velocities (not used but kept for compatibility)
+    v_velocities : dict
+        Dictionary of vertical velocities (not used but kept for compatibility)
+    agents : list
+        List of FlowPolygonAgent objects
+    iteration : int
+        Current iteration number for title display
+    vmin : float, optional
+        Minimum value for concentration colormap
+    vmax : float, optional
+        Maximum value for concentration colormap
+    """
+    # Get grid dimensions
+    n_rows = max(agent.row for agent in agents) + 1
+    n_cols = max(agent.col for agent in agents) + 1
+    
+    # Create figure with single plot
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Create a grid for concentrations
+    btn_concentration_grid = np.zeros((n_rows, n_cols))
+    
+    # Debug: Count how many agents have btn_concentration
+    has_btn = 0
+    max_btn = 0
+    
+    # Fill the grid with concentration values
+    for agent in agents:
+        if hasattr(agent, "btn_concentration"):
+            btn_concentration_grid[agent.row, agent.col] = agent.btn_concentration
+            has_btn += 1
+            max_btn = max(max_btn, agent.btn_concentration)
+    
+    # Print debug info
+    print(f"Iteration {iteration}: {has_btn} agents have btn_concentration, max value: {max_btn}")
+    
+    # If no maximum specified and we have data, set a reasonable maximum
+    if vmax is None and max_btn > 0:
+        vmax = max_btn
+    
+    # Use imshow to display concentration as a heatmap with specified range
+    im = ax.imshow(btn_concentration_grid, origin='lower', cmap='viridis', 
+                  interpolation='nearest', aspect='equal',
+                  extent=[0, n_cols, 0, n_rows],
+                  vmin=0, vmax=vmax)  # Set min and max values for color scale
+    
+    # Add colorbar
+    cbar = fig.colorbar(im, ax=ax, label=f'BTN Concentration (Max: {max_btn:.2f})')
+    
+    # Add cell outlines for reference (optional)
+    for i in range(n_cols + 1):
+        ax.axvline(i, color='gray', linewidth=0.5, alpha=0.3)
+    for i in range(n_rows + 1):
+        ax.axhline(i, color='gray', linewidth=0.5, alpha=0.3)
+    
+    # Mark non-water cells with crosshatching
+    for agent in agents:
+        if not hasattr(agent, "water") or not agent.water:
+            row, col = agent.row, agent.col
+            rect = plt.Rectangle((col, row), 1, 1, 
+                               fill=False, hatch='x', 
+                               edgecolor='black', alpha=0.7)
+            ax.add_patch(rect)
+    
+    # Mark clam cells with a different border or marker
+    
+    # Configure plot
+    ax.set_title('BTN Concentration Values')
+    ax.set_xlabel('Column')
+    ax.set_ylabel('Row')
+    ax.grid(False)
+    
+    # Overall figure configuration
+    plt.suptitle(f'BTN Concentration Visualization - Iteration {iteration}', fontsize=16)
+    plt.tight_layout()
+    
+    return fig
+
+
 run_simulation(h_velocities, v_velocities, total_agents, 
-                  num_iterations=500, 
+                  num_iterations=100, 
                   advection_loops=1, 
                   projection_loops=30,
-                  plot_interval=100, 
+                  plot_interval=10, 
                   overrelaxation=1.5,
-                  dt=0.0001,
+                  dt=0.1,
                   drug_drop=(50,35),
                   drug_concentration = 100,
-                  drug_drop_iteration=200,
-                  visualize_fn=visualize_concentration,
+                  drug_drop_iteration=600,
+                  visualize_fn=visualize_btn,
                   save_plots=True,
                   output_dir="./output")  
-""" 
+"""
 run_simulation(h_velocities, v_velocities, total_agents, 
                   num_iterations=1000, 
                   advection_loops=1, 
@@ -453,6 +539,6 @@ run_simulation(h_velocities, v_velocities, total_agents,
                   drug_drop_iteration=300,
                   visualize_fn=visualize_collocated,
                   save_plots=True,
-                  output_dir="./output") """
-
+                  output_dir="./output") 
+ """
 

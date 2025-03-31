@@ -5,7 +5,7 @@ import pandas as pd
 import geopandas as gpd
 import time
 
-from disease import advect_concentrations,drop_concentration
+from disease import advect_concentrations,drop_concentration, advect_btn_concentrations,update_clam_population,initialize_clam_cancer
 
 def wind(agents):
     """
@@ -432,14 +432,18 @@ def run_simulation(h_velocities, v_velocities, agents,
     
     # Start timing
     start_time = time.time()
-    
+
+
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
+        if iteration == 1: 
+            # Initialize clam cancer at the beginning of the simulation
+            initialize_clam_cancer(agents,10)
+        
         if iteration == drug_drop_iteration:
             # Drop drug concentration at specified location
             agents = drop_concentration(agents, drug_concentration, drug_drop[0], drug_drop[1])
             print(f"Dropping drug at iteration {iteration} at {drug_drop}")
-
         # Update wind velocities
         agents = wind(agents)
         # Perform projection steps to enforce incompressibility
@@ -454,7 +458,10 @@ def run_simulation(h_velocities, v_velocities, agents,
 
         #agents = concentration_spread(agents,dt=dt)
         agents = advect_concentrations(agents, h_velocities, v_velocities, dt=dt)
+        agents = advect_btn_concentrations(agents, h_velocities, v_velocities, dt=dt)
 
+
+        agents = update_clam_population(agents)
         # Calculate velocity statistics more robustly
         # Extract all velocity components into a single list for simpler max/min calculation
         all_velocities = []

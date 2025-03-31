@@ -164,7 +164,7 @@ def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
 
 def advect_btn_concentrations(agents, h_velocities, v_velocities, dt=0.5):
     """
-    Advect concentration values stored at cell centers using semi-Lagrangian method.
+    Advect btn_concentration values stored at cell centers using semi-Lagrangian method.
     
     Parameters:
     -----------
@@ -180,25 +180,25 @@ def advect_btn_concentrations(agents, h_velocities, v_velocities, dt=0.5):
     Returns:
     --------
     agents : list
-        Updated list of agents with new concentration values
+        Updated list of agents with new btn_concentration values
     """
     # Get grid dimensions
     n_rows = max(agent.row for agent in agents) + 1
     n_cols = max(agent.col for agent in agents) + 1
     
-    # Create a grid to store concentration values
+    # Create a grid to store btn_concentration values
     concentration_grid = np.zeros((n_rows, n_cols))
     
-    # Fill the grid with concentration values from agents
+    # Fill the grid with btn_concentration values from agents
     for agent in agents:
-        if hasattr(agent, "concentration"):
-            concentration_grid[agent.row, agent.col] = agent.concentration
+        if hasattr(agent, "btn_concentration"):
+            concentration_grid[agent.row, agent.col] = agent.btn_concentration
     
-    # Create new concentration values (don't update immediately to avoid affecting other calculations)
+    # Create new btn_concentration values (don't update immediately to avoid affecting other calculations)
     new_concentrations = {}
     
-    # Process only water agents (those with concentration > 0)
-    water_agents = [agent for agent in agents if hasattr(agent, "concentration") and agent.concentration > 0]
+    # Process only water agents (those with btn_concentration > 0)
+    water_agents = [agent for agent in agents if hasattr(agent, "btn_concentration") and agent.btn_concentration > 0]
     
     for agent in water_agents:
         row, col = agent.row, agent.col
@@ -246,8 +246,8 @@ def advect_btn_concentrations(agents, h_velocities, v_velocities, dt=0.5):
         # Check if departure point is out of bounds
         if (x_dep < 0 or x_dep >= n_cols or
             y_dep < 0 or y_dep >= n_rows):
-            # Keep the original concentration if backtracking goes out of bounds
-            new_concentrations[agent] = agent.concentration
+            # Keep the original btn_concentration if backtracking goes out of bounds
+            new_concentrations[agent] = agent.btn_concentration
             continue
         
         # Find the cell containing the departure point
@@ -266,7 +266,7 @@ def advect_btn_concentrations(agents, h_velocities, v_velocities, dt=0.5):
         x_frac = max(0.0, min(1.0, x_frac))
         y_frac = max(0.0, min(1.0, y_frac))
         
-        # Get concentration values at the four corners
+        # Get btn_concentration values at the four corners
         c00 = concentration_grid[y_floor, x_floor]          # Bottom-left
         c01 = concentration_grid[y_floor, min(x_floor + 1, n_cols - 1)]      # Bottom-right
         c10 = concentration_grid[min(y_floor + 1, n_rows - 1), x_floor]      # Top-left
@@ -277,13 +277,13 @@ def advect_btn_concentrations(agents, h_velocities, v_velocities, dt=0.5):
         c1 = c10 * (1 - x_frac) + c11 * x_frac  # Top edge
         c_interp = c0 * (1 - y_frac) + c1 * y_frac
         
-        # Store the new concentration value (change stickiness with blending)
+        # Store the new btn_concentration value (change stickiness with blending)
         blend = 0.3 
-        new_concentrations[agent] = ((1-blend)*agent.concentration) + blend*c_interp
+        new_concentrations[agent] = ((1-blend)*agent.btn_concentration) + blend*c_interp
     
-    # Update all agent concentration values
+    # Update all agent btn_concentration values
     for agent, new_concentration in new_concentrations.items():
-        agent.concentration = new_concentration
+        agent.btn_concentration = new_concentration
 
     return agents
 
@@ -320,53 +320,58 @@ populations = [
     population21, population22, population23
 ]
 
-def update_clam_population(agents,iteration):
-    # first, iterating through all clam agents
+def update_clam_population(agents):
     for agent in agents:
         if agent.clam_presence == True:
-            # given concentraton of BTN cells in a finite volume of 1 250 000 in bay
-            F = 0.0455*5 #liters per 5 mins or liters per iteration
-
+            # Calculate new infections
+            F = 0.0455*5 #liters per 5 mins
             cells_per_clam = F*agent.btn_concentration
-            infection_probability  = 1 - np.exp(-cells_per_clam)
-
-            agent.infected_clams = agent.healthy_clams * infection_probability #update infected clam population
-
-            # update BTN release
-            agent.btn_concentration = (agent.infected_clams * 35)/1250000
-
-            # percentage will die every time step, rounded floor
-            agent.dead_clams = (agent.infected_clams * np.random.uniform(0.01,0.05))//1
+            infection_probability = 1 - np.exp(-cells_per_clam)
             
- 
+            # Number of newly infected clams
+            new_infections = int(agent.healthy_clams * infection_probability)
+
+            # Update populations
+            agent.healthy_clams -= new_infections
+            agent.infected_clams += new_infections
+            
+            # Calculate deaths
+            new_deaths = int(agent.infected_clams * np.random.uniform(0.01, 0.05))
+            agent.infected_clams -= new_deaths
+            agent.dead_clams += new_deaths
+            
+            # Update BTN release based on current infected population
+            agent.btn_concentration += (agent.infected_clams * 100)/1250000
+
+            # print btn level with words
+            print(f"Agent at ({agent.row}, {agent.col}) has BTN concentration: {agent.btn_concentration:.2e}")
+            print(agent.water)
+
+
     return agents
 
-def initialize_clam_cancer(agents,population_id):
+def initialize_clam_cancer(agents, population_id):
     for agent in agents: 
+        if agent.water == True or agent.clam_presence == True:
+            agent.btn_concentration = 1e-5
+
         for clams in populations[population_id-1]:
             if agent.row == clams[0] and agent.col == clams[1]:
-                agent.infected_clams = agent.healthy_clams
+                agent.infected_clams = 2500 
                 agent.healthy_clams = 0
                 agent.dead_clams = 0
-                agent.btn_concentration = 0.0
-
-
-            
-
-
-
-            
-
- 
-
-
-
-            
-            
+                # Set initial BTN concentration based on infected clams
+                agent.btn_concentration = (agent.infected_clams * 100)/1250000
+    return agents
 
 
 
 
 
 
- 
+
+
+
+
+
+
