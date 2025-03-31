@@ -378,6 +378,120 @@ def project_single_cell(agent,overrelaxation=1.0):
             multiplier = 1.0 if direction == "E" else -1.0
             edge["vx"] -= multiplier * correction
 
+def apply_progressive_dampening(h_velocities, v_velocities, agents, avg_velocity, threshold=0.0008, target_avg=0.0005):
+    """
+    Apply progressive velocity dampening when average velocity exceeds threshold.
+    
+    Parameters:
+    -----------
+    h_velocities : dict
+        Dictionary of horizontal velocities at horizontal edges
+    v_velocities : dict
+        Dictionary of vertical velocities at vertical edges
+    agents : list
+        List of FlowPolygonAgent objects
+    avg_velocity : float
+        Current average velocity magnitude across the grid
+    threshold : float, optional
+        Threshold for average velocity above which dampening is applied
+    target_avg : float, optional
+        Target average velocity after dampening
+        
+    Returns:
+    --------
+    h_velocities, v_velocities : updated velocity dictionaries
+    """
+    if avg_velocity <= threshold:
+        return h_velocities, v_velocities
+    
+    print(f"  Need dampening: current avg = {avg_velocity:.6f}, target = {target_avg:.6f}")
+    
+    # Apply progressive dampening to horizontal velocities
+    for key, edge_dict in h_velocities.items():
+        # Skip locked edges and edges connected to source cells
+        edge_locked = edge_dict.get("locked", False)
+        
+        # Check if this edge is part of a source cell
+        row, col = key
+        edge_is_source = False
+        for agent in agents:
+            if hasattr(agent, "source") and agent.source:
+                # Check if this edge belongs to the source cell
+                if (agent.row == row or agent.row == row-1) and agent.col == col:
+                    edge_is_source = True
+                    break
+        
+        if not edge_locked and not edge_is_source:
+            # Apply progressive dampening to each velocity component
+            if "vy" in edge_dict:
+                magnitude = abs(edge_dict["vy"])
+                if magnitude > 0:
+                    factor = get_dampening_factor(magnitude, threshold)
+                    edge_dict["vy"] *= factor
+            
+            if "vx" in edge_dict:
+                magnitude = abs(edge_dict["vx"])
+                if magnitude > 0:
+                    factor = get_dampening_factor(magnitude, threshold)
+                    edge_dict["vx"] *= factor
+    
+    # Apply the same progressive dampening to vertical velocities
+    for key, edge_dict in v_velocities.items():
+        # Skip locked edges and edges connected to source cells
+        edge_locked = edge_dict.get("locked", False)
+        
+        # Check if this edge is part of a source cell
+        row, col = key
+        edge_is_source = False
+        for agent in agents:
+            if hasattr(agent, "source") and agent.source:
+                # Check if this edge belongs to the source cell
+                if agent.row == row and (agent.col == col or agent.col == col-1):
+                    edge_is_source = True
+                    break
+        
+        if not edge_locked and not edge_is_source:
+            # Apply progressive dampening to each velocity component
+            if "vx" in edge_dict:
+                magnitude = abs(edge_dict["vx"])
+                if magnitude > 0:
+                    factor = get_dampening_factor(magnitude, threshold)
+                    edge_dict["vx"] *= factor
+            
+            if "vy" in edge_dict:
+                magnitude = abs(edge_dict["vy"])
+                if magnitude > 0:
+                    factor = get_dampening_factor(magnitude, threshold)
+                    edge_dict["vy"] *= factor
+    
+    print(f"  Applied progressive dampening based on velocity magnitude")
+    return h_velocities, v_velocities
+
+def get_dampening_factor(magnitude, threshold):
+    """
+    Calculate dampening factor based on velocity magnitude.
+    
+    Parameters:
+    -----------
+    magnitude : float
+        Absolute value of velocity component
+    threshold : float
+        Threshold for average velocity
+        
+    Returns:
+    --------
+    factor : float
+        Dampening factor to apply to velocity
+    """
+    if magnitude > 0.005:
+        return 0.3  # 70% reduction for very large velocities
+    elif magnitude > 0.002:
+        return 0.6  # 40% reduction for large velocities
+    elif magnitude > threshold:
+        return 0.8  # 20% reduction for above-threshold velocities
+    else:
+        return 0.9  # 10% reduction for smaller velocities
+
 def run_simulation(h_velocities, v_velocities, agents, 
                   num_iterations, 
                   advection_loops, 
@@ -500,110 +614,8 @@ def run_simulation(h_velocities, v_velocities, agents,
         # Apply global dampening if average velocity exceeds threshold
         threshold = 0.0008
         target_avg = 0.0005
-        
-        if avg_velocity > threshold:
-            print(f"  Need dampening: current avg = {avg_velocity:.6f}, target = {target_avg:.6f}")
-            
-            # Apply progressive dampening that targets high velocities more aggressively
-            for key, edge_dict in h_velocities.items():
-                # Skip locked edges and edges connected to source cells
-                edge_locked = edge_dict.get("locked", False)
-                
-                # Check if this edge is part of a source cell
-                row, col = key
-                edge_is_source = False
-                for agent in agents:
-                    if hasattr(agent, "source") and agent.source:
-                        # Check if this edge belongs to the source cell
-                        if (agent.row == row or agent.row == row-1) and agent.col == col:
-                            edge_is_source = True
-                            break
-                
-                if not edge_locked and not edge_is_source:
-                    # Apply progressive dampening to each velocity component
-                    if "vy" in edge_dict:
-                        # Calculate a custom dampening factor based on velocity magnitude
-                        magnitude = abs(edge_dict["vy"])
-                        if magnitude > 0:
-                            # Progressive dampening: stronger for larger velocities
-                            # velocities > 0.005 get heavily dampened
-                            # velocities near average get moderately dampened
-                            # small velocities get lightly dampened
-                            factor = 1.0
-                            if magnitude > 0.005:
-                                factor = 0.3  # 70% reduction for very large velocities
-                            elif magnitude > 0.002:
-                                factor = 0.6  # 40% reduction for large velocities
-                            elif magnitude > threshold:
-                                factor = 0.8  # 20% reduction for above-threshold velocities
-                            else:
-                                factor = 0.9  # 10% reduction for smaller velocities
-                            
-                            edge_dict["vy"] *= factor
-                    
-                    if "vx" in edge_dict:
-                        magnitude = abs(edge_dict["vx"])
-                        if magnitude > 0:
-                            factor = 1.0
-                            if magnitude > 0.005:
-                                factor = 0.3
-                            elif magnitude > 0.002:
-                                factor = 0.6
-                            elif magnitude > threshold:
-                                factor = 0.8
-                            else:
-                                factor = 0.9
-                            
-                            edge_dict["vx"] *= factor
-            
-            # Apply the same progressive dampening to vertical velocities
-            for key, edge_dict in v_velocities.items():
-                # Skip locked edges and edges connected to source cells
-                edge_locked = edge_dict.get("locked", False)
-                
-                # Check if this edge is part of a source cell
-                row, col = key
-                edge_is_source = False
-                for agent in agents:
-                    if hasattr(agent, "source") and agent.source:
-                        # Check if this edge belongs to the source cell
-                        if agent.row == row and (agent.col == col or agent.col == col-1):
-                            edge_is_source = True
-                            break
-                
-                if not edge_locked and not edge_is_source:
-                    # Apply progressive dampening to each velocity component
-                    if "vx" in edge_dict:
-                        magnitude = abs(edge_dict["vx"])
-                        if magnitude > 0:
-                            factor = 1.0
-                            if magnitude > 0.005:
-                                factor = 0.3
-                            elif magnitude > 0.002:
-                                factor = 0.6
-                            elif magnitude > threshold:
-                                factor = 0.8
-                            else:
-                                factor = 0.9
-                            
-                            edge_dict["vx"] *= factor
-                    
-                    if "vy" in edge_dict:
-                        magnitude = abs(edge_dict["vy"])
-                        if magnitude > 0:
-                            factor = 1.0
-                            if magnitude > 0.005:
-                                factor = 0.3
-                            elif magnitude > 0.002:
-                                factor = 0.6
-                            elif magnitude > threshold:
-                                factor = 0.8
-                            else:
-                                factor = 0.9
-                            
-                            edge_dict["vy"] *= factor
-            
-            print(f"  Applied progressive dampening based on velocity magnitude")
+        h_velocities, v_velocities = apply_progressive_dampening(h_velocities, v_velocities, agents, 
+                                                               avg_velocity, threshold, target_avg)
 
         # Visualize if it's a plotting interval
         if visualize_fn and plot_interval > 0 and iteration % plot_interval == 0:

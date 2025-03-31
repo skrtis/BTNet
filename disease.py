@@ -340,13 +340,21 @@ def update_clam_population(agents):
             agent.infected_clams -= new_deaths
             agent.dead_clams += new_deaths
             
+
+            # implement remedial part
+            max_recovery_rate = 0.2  # maximum fraction of infected clams that can recover per iteration
+
+            # Calculate drug effect (value between 0 and 1)
+            drug_effect = agent.concentration/ (agent.concentration+ 1)
+            recovered = np.random.binomial(agent.infected_clams, 0.5)
+            agent.infected_clams -= recovered
+            agent.healthy_clams += recovered
+
+            #remove some concentration (how much was used)
+            agent.concentration -= drug_effect * 0.1
+
             # Update BTN release based on current infected population
             agent.btn_concentration += (agent.infected_clams * 100)/1250000
-
-            # print btn level with words
-            print(f"Agent at ({agent.row}, {agent.col}) has BTN concentration: {agent.btn_concentration:.2e}")
-            print(agent.water)
-
 
     return agents
 

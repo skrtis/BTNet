@@ -20,7 +20,8 @@ from mechanisms import (
     advect_velocities,
     project_velocities,
     update_velocities_from_grid,
-    wind
+    wind,
+    apply_progressive_dampening  # Add this import
 )
 
 # Import from disease module
@@ -33,7 +34,7 @@ from disease import (
     populations
 )
 
-def setup_simulation(population_id=1):
+def setup_simulation(population_id=10):
     """Initialize the simulation environment"""
     # Load and transform grid data
     grid_data = extract_grid_indices("malpeque_tiles.geojson")
@@ -61,7 +62,7 @@ def init_data_storage():
     }
     return population_data
 
-def plot_concentration(ax, agents, concentration_attr="concentration", title="Concentration", cbar_ax=None):
+def plot_concentration(ax, agents, concentration_attr="concentration", title="Concentration", cbar_ax=None, cmap='viridis'):
     """Plot concentration heatmap with proper colorbar handling"""
     ax.clear()
     ax.set_title(title)
@@ -79,7 +80,7 @@ def plot_concentration(ax, agents, concentration_attr="concentration", title="Co
             concentration_grid[agent.row, agent.col] = getattr(agent, concentration_attr)
     
     # Use imshow to display concentration as a heatmap
-    im = ax.imshow(concentration_grid, origin='lower', cmap='viridis', 
+    im = ax.imshow(concentration_grid, origin='lower', cmap=cmap, 
                   interpolation='nearest', aspect='equal',
                   extent=[0, n_cols, 0, n_rows],
                   vmin=0, vmax=None)
@@ -132,7 +133,7 @@ def plot_population_data(ax, pop_name, time_data, healthy_data, infected_data, d
     if pop_name == "Population 1":
         ax.legend(fontsize=6)
 
-def create_visualization_layout(population_id=1):
+def create_visualization_layout(population_id=10):
     """Create the visualization layout with actual data from the simulation"""
     # Create figure with the layout
     fig = plt.figure(figsize=(20, 12))
@@ -242,14 +243,50 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     
     # Perform advection
     h_velocities, v_velocities = advect_velocities(h_velocities, v_velocities, agents, dt=dt)
-    
     # Advect concentrations
     agents = advect_concentrations(agents, h_velocities, v_velocities, dt=dt)
     agents = advect_btn_concentrations(agents, h_velocities, v_velocities, dt=dt)
     
     # Update clam populations
-    agents = update_clam_population(agents, frame_num)
+    agents = update_clam_population(agents)
+
+    #--- ----
+    # Calculate velocity statistics to check if dampening is needed
+    all_velocities = []
+    velocity_magnitudes = []
     
+    # Get all velocity components from horizontal edges
+    for edge_dict in h_velocities.values():
+        vy = edge_dict.get("vy", 0)
+        all_velocities.append(vy)
+        velocity_magnitudes.append(abs(vy))
+        
+        if "vx" in edge_dict:
+            vx = edge_dict["vx"]
+            all_velocities.append(vx)
+            velocity_magnitudes.append(abs(vx))
+    
+    # Get all velocity components from vertical edges
+    for edge_dict in v_velocities.values():
+        vx = edge_dict.get("vx", 0)
+        all_velocities.append(vx)
+        velocity_magnitudes.append(abs(vx))
+        
+        if "vy" in edge_dict:
+            vy = edge_dict["vy"]
+            all_velocities.append(vy)
+            velocity_magnitudes.append(abs(vy))
+    
+    # Calculate average velocity
+    avg_velocity = sum(velocity_magnitudes) / len(velocity_magnitudes) if velocity_magnitudes else 0
+    
+    # Apply dampening if needed
+    threshold = 0.0008
+    target_avg = 0.0005
+    h_velocities, v_velocities = apply_progressive_dampening(h_velocities, v_velocities, agents,
+                                                          avg_velocity, threshold, target_avg) 
+    #--- ----
+
     # Update population statistics
     for i, pop_coords in enumerate(populations):
         pop_name = f"population{i+1}"
@@ -277,7 +314,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     
     return agents, h_velocities, v_velocities, population_data
 
-def create_animation(num_frames=100, interval=100, population_id=1, 
+def create_animation(num_frames=100, interval=200, population_id=10, 
                    dt=0.1, projection_loops=10, overrelaxation=1.5,
                    drug_drop=(50, 35), drug_drop_frame=50):
     """
@@ -322,7 +359,7 @@ def create_animation(num_frames=100, interval=100, population_id=1,
         )
         
         # Update concentration plots with dedicated colorbar axes
-        plot_concentration(axd['C'], agents, "concentration", "General Concentration", cbar_ax=axd['C_cbar'])
+        plot_concentration(axd['C'], agents, "concentration", "Drug Concentration", cbar_ax=axd['C_cbar'])
         plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'])
         
         # Update population plots
@@ -354,20 +391,16 @@ def create_animation(num_frames=100, interval=100, population_id=1,
 if __name__ == "__main__":
     # Create and display the animation
     fig, ani = create_animation(
-        num_frames=10,
-        interval=10,
-        population_id=1,
+        num_frames=200,
+        interval=1000,
+        population_id=10,
         dt=0.1,
         projection_loops=10, 
         overrelaxation=1.5,
-        drug_drop=(50, 35),
-        drug_drop_frame=20
+        drug_drop=(44, 45),
+        drug_drop_frame=50
     )
-    
-    # Show the animation
-    plt.show()
-    
-    # Optionally save the animation
-    ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=10, dpi=150)
+   
+    ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=5, dpi=150)
 
 

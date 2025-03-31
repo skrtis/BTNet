@@ -514,16 +514,16 @@ def visualize_btn(h_velocities, v_velocities, agents, iteration=0, vmin=0, vmax=
 
 
 run_simulation(h_velocities, v_velocities, total_agents, 
-                  num_iterations=100, 
+                  num_iterations=1000, 
                   advection_loops=1, 
                   projection_loops=30,
-                  plot_interval=10, 
+                  plot_interval=50, 
                   overrelaxation=1.5,
                   dt=0.1,
-                  drug_drop=(50,35),
+                  drug_drop=(44,45),
                   drug_concentration = 100,
-                  drug_drop_iteration=600,
-                  visualize_fn=visualize_btn,
+                  drug_drop_iteration=50,
+                  visualize_fn=visualize_concentration,
                   save_plots=True,
                   output_dir="./output")  
 """
