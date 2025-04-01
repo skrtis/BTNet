@@ -322,7 +322,7 @@ populations = [
 
 def update_clam_population(agents, iteration=0):
     # BTN natural decay in water cells (50% every 100 iterations)
-    if iteration % 100 == 0 and iteration > 0:
+    if iteration % 50 == 0 and iteration > 0:
         for agent in agents:
             if agent.water == True and not agent.clam_presence:
                 agent.btn_concentration *= 0.5
