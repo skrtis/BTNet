@@ -183,7 +183,7 @@ def create_visualization_layout(population_id=10):
     
     # Plot concentration data with specific colormaps
     plot_concentration(axd['C'], agents, "concentration", "General Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
-    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='inferno')
+    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='Purples')
     
     # Initialize data storage for population plots - empty for initial state
     population_data = init_data_storage()
@@ -358,12 +358,12 @@ def create_animation(num_frames=100, interval=200, population_id=10,
         nonlocal agents, h_velocities, v_velocities, population_data
         agents, h_velocities, v_velocities, population_data = update_simulation(
             agents, h_velocities, v_velocities, population_data, frame_num,
-            dt, projection_loops, overrelaxation, drug_drop, 5, drug_drop_frame
+            dt, projection_loops, overrelaxation, drug_drop, 40, drug_drop_frame
         )
         
         # Update concentration plots with dedicated colorbar axes and specific colormaps
         plot_concentration(axd['C'], agents, "concentration", "Drug Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
-        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='inferno')
+        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='Purples')
         
         # Update population plots
         for i in range(len(populations)):
@@ -394,16 +394,90 @@ def create_animation(num_frames=100, interval=200, population_id=10,
 if __name__ == "__main__":
     # Create and display the animation
     fig, ani = create_animation(
-        num_frames=200,
-        interval=2000,
-        population_id=10,
+        num_frames=600,
+        interval=6000,
+        population_id=11,
         dt=0.1,
         projection_loops=30, 
         overrelaxation=1.5,
-        drug_drop=(45, 45),
-        drug_drop_frame=5
+        drug_drop=(22, 39),
+        drug_drop_frame=100
     )
    
     ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=5, dpi=150)
+    plt.close(fig)
+
+    fig2, ani2 = create_animation(
+            num_frames=600,
+            interval=6000,
+            population_id=5,
+            dt=0.1,
+            projection_loops=30, 
+            overrelaxation=1.5,
+            drug_drop=(55, 24),
+            drug_drop_frame=100
+        )
+    
+    ani2.save('clam_disease_animation2.mp4', writer='ffmpeg', fps=5, dpi=150)
+    plt.close(fig2)
+
+    fig3, ani3 = create_animation(
+            num_frames=600,
+            interval=6000,
+            population_id=20,
+            dt=0.1,
+            projection_loops=30, 
+            overrelaxation=1.5,
+            drug_drop=(43, 50),
+            drug_drop_frame=100
+        )
+    
+    ani3.save('clam_disease_animation3.mp4', writer='ffmpeg', fps=5, dpi=150)
+    plt.close(fig3)
+
+    fig4, ani4 = create_animation(
+            num_frames=600,
+            interval=6000,
+            population_id=19,
+            dt=0.1,
+            projection_loops=30, 
+            overrelaxation=1.5,
+            drug_drop=(30, 40),
+            drug_drop_frame=100
+        )
+    
+    ani4.save('clam_disease_animation4.mp4', writer='ffmpeg', fps=5, dpi=150)
+    plt.close(fig4)
+
+
+    fig5, ani5 = create_animation(
+            num_frames=600,
+            interval=6000,
+            population_id=18,
+            dt=0.1,
+            projection_loops=30, 
+            overrelaxation=1.5,
+            drug_drop=(11, 38),
+            drug_drop_frame=100
+        )
+    
+    ani5.save('clam_disease_animation5.mp4', writer='ffmpeg', fps=5, dpi=150)
+    plt.close(fig5)
+
+    
+
+    
+
+
+    
+
+
+
+
+    
+
+
+    
+
 
 

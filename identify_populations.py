@@ -147,7 +147,7 @@ def visualize_populations(agents, populations):
     
     # Add population labels for larger populations
     for name, pop in populations.items():
-        if len(pop) > 3:  # Only label populations with more than 3 cells
+        if len(pop) > 0:  # Only label populations with more than 3 cells
             center_r = sum(r for r, c in pop) / len(pop)
             center_c = sum(c for r, c in pop) / len(pop)
             ax2.text(center_c, center_r, name, 
