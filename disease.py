@@ -377,7 +377,7 @@ def update_clam_population(agents, iteration=0):
 
     return agents
 
-def initialize_clam_cancer(agents, population_id):
+def initialize_clam_cancer(agents, population_id,population_id2):
     for agent in agents: 
         if agent.water == True or agent.clam_presence == True:
             agent.btn_concentration = 1e-5
@@ -389,6 +389,14 @@ def initialize_clam_cancer(agents, population_id):
                 agent.dead_clams = 0
                 # Set initial BTN concentration based on infected clams
                 agent.btn_concentration = (agent.infected_clams * 100)/1250000
+
+        for clams in populations[population_id2-1]:
+            if agent.row == clams[0] and agent.col == clams[1]:
+                agent.infected_clams = 2500 
+                agent.healthy_clams = 0
+                agent.dead_clams = 0
+                # Set initial BTN concentration based on infected clams
+                agent.btn_concentration = (agent.infected_clams * 100)/1250000 
     return agents
 
 

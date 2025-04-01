@@ -198,7 +198,7 @@ def create_visualization_layout(population_id=10):
 
 def update_simulation(agents, h_velocities, v_velocities, population_data, frame_num, 
                      dt=0.1, projection_loops=10, overrelaxation=1.5, 
-                     drug_drop=None, drug_concentration=5, drug_drop_frame=50,population_id=5):
+                     drug_drop=None, drug_concentration=5, drug_drop_frame=50,population_id=5,population_id2 = 13):
     """
     Update the simulation state for a single frame of animation.
     
@@ -232,7 +232,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     """
     # Drop drug concentration if this is the right frame
     if frame_num == 30:
-        initialize_clam_cancer(agents, population_id=population_id)
+        initialize_clam_cancer(agents, population_id=population_id,population_id2=population_id2 )
 
 
     if drug_drop and frame_num == drug_drop_frame:
@@ -323,7 +323,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
 
 def create_animation(num_frames=100, interval=200, population_id=10, 
                    dt=0.1, projection_loops=10, overrelaxation=1.5,
-                   drug_drop=(50, 35), drug_drop_frame=50):
+                   drug_drop=(50, 35), drug_drop_frame=50,population_id2 = 13):
     """
     Create an animation of the clam disease simulation
     
@@ -363,7 +363,7 @@ def create_animation(num_frames=100, interval=200, population_id=10,
         agents, h_velocities, v_velocities, population_data = update_simulation(
             agents, h_velocities, v_velocities, population_data, frame_num,
             dt, projection_loops, overrelaxation, drug_drop, 40, drug_drop_frame
-        ,population_id=population_id)
+        ,population_id=population_id,population_id2=population_id2)
         
         # Update concentration plots with dedicated colorbar axes and specific colormaps
         plot_concentration(axd['C'], agents, "concentration", "Drug Concentration (mg/m^3)", cbar_ax=axd['C_cbar'], cmap='viridis')
@@ -405,8 +405,8 @@ if __name__ == "__main__":
         projection_loops=50, 
         overrelaxation=1.5,
         drug_drop=(50, 30),
-        drug_drop_frame=120
-    )
+        drug_drop_frame=120,
+        population_id2=13)
    
     ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=5, dpi=150)
     plt.close(fig)
