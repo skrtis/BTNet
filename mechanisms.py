@@ -408,34 +408,27 @@ def apply_progressive_dampening(h_velocities, v_velocities, agents, avg_velocity
     
     # Apply progressive dampening to horizontal velocities
     for key, edge_dict in h_velocities.items():
-        # Skip locked edges and edges connected to source cells
+        # Skip locked edges
         edge_locked = edge_dict.get("locked", False)
         
-        # Check if this edge is part of a source cell
+        # Skip edges connected to source cells
         row, col = key
         edge_is_source = False
         for agent in agents:
             if hasattr(agent, "source") and agent.source:
-                # Check if this edge belongs to the source cell
-                if (agent.row == row or agent.row == row-1) and agent.col == col:
+                if agent.row == row and (agent.col == col or agent.col == col-1):
                     edge_is_source = True
                     break
         
         if not edge_locked and not edge_is_source:
             # Apply progressive dampening to each velocity component
-            if "vy" in edge_dict:
-                magnitude = abs(edge_dict["vy"])
-                if magnitude > 0:
-                    factor = get_dampening_factor(magnitude, threshold)
-                    edge_dict["vy"] *= factor
-            
             if "vx" in edge_dict:
                 magnitude = abs(edge_dict["vx"])
                 if magnitude > 0:
-                    factor = get_dampening_factor(magnitude, threshold)
+                    factor = get_dampening_factor(magnitude, threshold, avg_velocity, target_avg)
                     edge_dict["vx"] *= factor
     
-    # Apply the same progressive dampening to vertical velocities
+    # Apply the same for vertical velocities
     for key, edge_dict in v_velocities.items():
         # Skip locked edges and edges connected to source cells
         edge_locked = edge_dict.get("locked", False)
@@ -455,21 +448,22 @@ def apply_progressive_dampening(h_velocities, v_velocities, agents, avg_velocity
             if "vx" in edge_dict:
                 magnitude = abs(edge_dict["vx"])
                 if magnitude > 0:
-                    factor = get_dampening_factor(magnitude, threshold)
+                    factor = get_dampening_factor(magnitude, threshold, avg_velocity, target_avg)
                     edge_dict["vx"] *= factor
             
             if "vy" in edge_dict:
                 magnitude = abs(edge_dict["vy"])
                 if magnitude > 0:
-                    factor = get_dampening_factor(magnitude, threshold)
+                    factor = get_dampening_factor(magnitude, threshold, avg_velocity, target_avg)
                     edge_dict["vy"] *= factor
     
     print(f"  Applied progressive dampening based on velocity magnitude")
     return h_velocities, v_velocities
 
-def get_dampening_factor(magnitude, threshold):
+def get_dampening_factor(magnitude, threshold, current_avg=None, target_avg=None):
     """
-    Calculate dampening factor based on velocity magnitude.
+    Calculate dampening factor with stronger bias against large velocities,
+    adjusted to ensure we reach the target average velocity.
     
     Parameters:
     -----------
@@ -477,20 +471,57 @@ def get_dampening_factor(magnitude, threshold):
         Absolute value of velocity component
     threshold : float
         Threshold for average velocity
+    current_avg : float, optional
+        Current average velocity across the system
+    target_avg : float, optional
+        Target average velocity we want to achieve
         
     Returns:
     --------
     factor : float
-        Dampening factor to apply to velocity
+        Dampening factor to apply to velocity (between 0.3 and 0.95)
     """
-    if magnitude > 0.005:
-        return 0.3  # 70% reduction for very large velocities
-    elif magnitude > 0.002:
-        return 0.6  # 40% reduction for large velocities
-    elif magnitude > threshold:
-        return 0.8  # 20% reduction for above-threshold velocities
-    else:
-        return 0.9  # 10% reduction for smaller velocities
+    import numpy as np
+    
+    # Define min and max dampening factors
+    min_factor = 0.05  # Maximum dampening (70% reduction) for very large velocities
+    max_factor = 0.95  # Minimum dampening (5% reduction) for small velocities
+    
+    # If below threshold, apply minimal dampening
+    if magnitude <= threshold:
+        return max_factor
+    
+    # Calculate how much this velocity exceeds the threshold
+    excess = magnitude / threshold
+    
+    # Use a power function to create stronger dampening for higher velocities
+    # Higher exponent = stronger bias against large velocities
+    exponent = 10
+    dampening_bias = 1.0 / (excess ** exponent)
+    
+    # Map to our factor range, clamping between min_factor and max_factor
+    base_factor = min_factor + dampening_bias * (max_factor - min_factor)
+    base_factor = max(min_factor, min(max_factor, base_factor))
+    
+    # If we have current and target average velocities, further adjust to hit target
+    if current_avg and target_avg and current_avg > threshold:
+        # Calculate ratio of target to current velocity
+        ratio = target_avg / current_avg
+        
+        # For velocities much higher than average, apply extra dampening
+        if magnitude > 1.5 * current_avg:
+            # Square the ratio for even stronger dampening of outliers
+            additional_dampening = ratio ** 2
+            base_factor *= additional_dampening
+        elif magnitude > current_avg:
+            # For velocities just above average, scale dampening by ratio
+            scale_factor = 1.0 - (1.0 - ratio) * ((magnitude / current_avg) - 1.0)
+            base_factor *= scale_factor
+    
+    # Ensure we stay within valid range
+    factor = max(min_factor, min(max_factor, base_factor))
+    
+    return factor
 
 def run_simulation(h_velocities, v_velocities, agents, 
                   num_iterations, 
@@ -546,7 +577,6 @@ def run_simulation(h_velocities, v_velocities, agents,
     
     # Start timing
     start_time = time.time()
-
 
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
@@ -612,8 +642,8 @@ def run_simulation(h_velocities, v_velocities, agents,
         print(f"Iteration {iteration}: Max Velocity: {max_velocity:.4f}, Min Velocity: {min_velocity:.8f}, Avg Velocity: {avg_velocity:.8f}")
 
         # Apply global dampening if average velocity exceeds threshold
-        threshold = 0.0008
-        target_avg = 0.0005
+        threshold = 0.0006
+        target_avg = 0.0003
         h_velocities, v_velocities = apply_progressive_dampening(h_velocities, v_velocities, agents, 
                                                                avg_velocity, threshold, target_avg)
 

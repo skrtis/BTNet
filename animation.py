@@ -74,24 +74,27 @@ def plot_concentration(ax, agents, concentration_attr="concentration", title="Co
     # Create a grid for concentrations
     concentration_grid = np.zeros((n_rows, n_cols))
     
-    # Fill the grid with concentration values
+    # Fill the grid with concentration values and track max value
+    max_value = 0
     for agent in agents:
         if hasattr(agent, concentration_attr):
-            concentration_grid[agent.row, agent.col] = getattr(agent, concentration_attr)
+            value = getattr(agent, concentration_attr)
+            concentration_grid[agent.row, agent.col] = value
+            max_value = max(max_value, value)
     
     # Use imshow to display concentration as a heatmap
     im = ax.imshow(concentration_grid, origin='lower', cmap=cmap, 
                   interpolation='nearest', aspect='equal',
                   extent=[0, n_cols, 0, n_rows],
-                  vmin=0, vmax=None)
+                  vmin=0, vmax=max_value if max_value > 0 else None)
     
-    # Add colorbar if axis provided, otherwise use a simple colorbar
-    if cbar_ax:
+    # Add colorbar if axis provided
+    if cbar_ax is not None:
         # Clear existing colorbar
         cbar_ax.clear()
-        plt.colorbar(im, cax=cbar_ax, label=concentration_attr.capitalize())
+        plt.colorbar(im, cax=cbar_ax, label=f"{concentration_attr.capitalize()} (max: {max_value:.6f})")
     else:
-        plt.colorbar(im, ax=ax, label=concentration_attr.capitalize(), shrink=0.6)
+        plt.colorbar(im, ax=ax, label=f"{concentration_attr.capitalize()} (max: {max_value:.6f})", shrink=0.6)
     
     # Add cell outlines for reference
     for i in range(n_cols + 1):
@@ -178,9 +181,9 @@ def create_visualization_layout(population_id=10):
     agents, h_velocities, v_velocities = setup_simulation(population_id)
     print(f"Created {len(agents)} agents")
     
-    # Plot concentration data - USE THE DEDICATED COLORBAR AXES HERE TOO
-    plot_concentration(axd['C'], agents, "concentration", "General Concentration", cbar_ax=axd['C_cbar'])
-    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'])
+    # Plot concentration data with specific colormaps
+    plot_concentration(axd['C'], agents, "concentration", "General Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
+    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='inferno')
     
     # Initialize data storage for population plots - empty for initial state
     population_data = init_data_storage()
@@ -195,7 +198,7 @@ def create_visualization_layout(population_id=10):
 
 def update_simulation(agents, h_velocities, v_velocities, population_data, frame_num, 
                      dt=0.1, projection_loops=10, overrelaxation=1.5, 
-                     drug_drop=None, drug_concentration=100, drug_drop_frame=50):
+                     drug_drop=None, drug_concentration=5, drug_drop_frame=50):
     """
     Update the simulation state for a single frame of animation.
     
@@ -355,12 +358,12 @@ def create_animation(num_frames=100, interval=200, population_id=10,
         nonlocal agents, h_velocities, v_velocities, population_data
         agents, h_velocities, v_velocities, population_data = update_simulation(
             agents, h_velocities, v_velocities, population_data, frame_num,
-            dt, projection_loops, overrelaxation, drug_drop, 100, drug_drop_frame
+            dt, projection_loops, overrelaxation, drug_drop, 5, drug_drop_frame
         )
         
-        # Update concentration plots with dedicated colorbar axes
-        plot_concentration(axd['C'], agents, "concentration", "Drug Concentration", cbar_ax=axd['C_cbar'])
-        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'])
+        # Update concentration plots with dedicated colorbar axes and specific colormaps
+        plot_concentration(axd['C'], agents, "concentration", "Drug Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
+        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='inferno')
         
         # Update population plots
         for i in range(len(populations)):
@@ -392,13 +395,13 @@ if __name__ == "__main__":
     # Create and display the animation
     fig, ani = create_animation(
         num_frames=200,
-        interval=1000,
+        interval=2000,
         population_id=10,
         dt=0.1,
-        projection_loops=10, 
+        projection_loops=30, 
         overrelaxation=1.5,
-        drug_drop=(44, 45),
-        drug_drop_frame=50
+        drug_drop=(45, 45),
+        drug_drop_frame=5
     )
    
     ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=5, dpi=150)

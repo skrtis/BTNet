@@ -34,7 +34,7 @@ def drop_concentration(agents, concentration, row, column):
             agent.concentration += concentration
         # else, give every water agent a random concentration between 0 and 0.01
         elif agent.water==True:
-            agent.concentration += 1e-5 
+            agent.concentration += 1e-7
     return agents
 
 def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
@@ -73,7 +73,7 @@ def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
     new_concentrations = {}
     
     # Process only water agents (those with concentration > 0)
-    water_agents = [agent for agent in agents if hasattr(agent, "concentration") and agent.concentration > 0]
+    water_agents = [agent for agent in agents if hasattr(agent, "concentration") and agent.water == True]
     
     for agent in water_agents:
         row, col = agent.row, agent.col
@@ -320,7 +320,13 @@ populations = [
     population21, population22, population23
 ]
 
-def update_clam_population(agents):
+def update_clam_population(agents, iteration=0):
+    # BTN natural decay in water cells (50% every 100 iterations)
+    if iteration % 100 == 0 and iteration > 0:
+        for agent in agents:
+            if agent.water == True and not agent.clam_presence:
+                agent.btn_concentration *= 0.5
+
     for agent in agents:
         if agent.clam_presence == True:
             # Calculate new infections
@@ -340,21 +346,33 @@ def update_clam_population(agents):
             agent.infected_clams -= new_deaths
             agent.dead_clams += new_deaths
             
+            # Dynamic K_d: concentration per cell at which the drug is 50% effective
+            K_d = agent.infected_clams*(0.11)/ 1250000  # equivalent to agent.infected_clams * concentration each clam needs (quarter pounders) and volume of area (1/1250000)
 
-            # implement remedial part
-            max_recovery_rate = 0.2  # maximum fraction of infected clams that can recover per iteration
+            # Calculate drug effect (a value between 0 and 1)
+            if K_d>0:
+                drug_effect = agent.concentration / (agent.concentration + K_d)
+            else:
+                drug_effect = 0
 
-            # Calculate drug effect (value between 0 and 1)
-            drug_effect = agent.concentration/ (agent.concentration+ 1)
-            recovered = np.random.binomial(agent.infected_clams, 0.5)
+            # Set the maximum recovery rate (e.g., maximum fraction of infected clams that can recover per iteration)
+            max_recovery_rate = 0.5  # This means that at full drug effect, up to 50% of infected clams could recover
+
+            # Calculate the actual recovery probability per infected clam
+            recovery_prob = drug_effect * max_recovery_rate
+
+            # Determine the number of recovered clams stochastically
+            recovered = np.random.binomial(agent.infected_clams, recovery_prob)
             agent.infected_clams -= recovered
             agent.healthy_clams += recovered
 
-            #remove some concentration (how much was used)
-            agent.concentration -= drug_effect * 0.1
-
+            # Remove some of the drug concentration based on how much was "used"
+            agent.concentration -= drug_effect * 0.001
+            agent.concentration = max(agent.concentration, 0)  # ensure concentration doesn't go negative
+            
             # Update BTN release based on current infected population
-            agent.btn_concentration += (agent.infected_clams * 100)/1250000
+            agent.btn_concentration += (agent.infected_clams * 100) / 1250000 
+        
 
     return agents
 
