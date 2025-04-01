@@ -182,8 +182,8 @@ def create_visualization_layout(population_id=10):
     print(f"Created {len(agents)} agents")
     
     # Plot concentration data with specific colormaps
-    plot_concentration(axd['C'], agents, "concentration", "General Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
-    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='Purples')
+    plot_concentration(axd['C'], agents, "Drug Concentration (mg/m^3)", "Drug Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
+    plot_concentration(axd['B'], agents, "BTN concentration (cells/m^3)", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='Purples')
     
     # Initialize data storage for population plots - empty for initial state
     population_data = init_data_storage()
@@ -251,7 +251,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     agents = advect_btn_concentrations(agents, h_velocities, v_velocities, dt=dt)
     
     # Update clam populations
-    agents = update_clam_population(agents)
+    agents = update_clam_population(agents,frame_num)
 
     #--- ----
     # Calculate velocity statistics to check if dampening is needed
@@ -362,8 +362,8 @@ def create_animation(num_frames=100, interval=200, population_id=10,
         )
         
         # Update concentration plots with dedicated colorbar axes and specific colormaps
-        plot_concentration(axd['C'], agents, "concentration", "Drug Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
-        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='Purples')
+        plot_concentration(axd['C'], agents, "Drug Concentration (mg/m^3)", "Drug Concentration", cbar_ax=axd['C_cbar'], cmap='viridis')
+        plot_concentration(axd['B'], agents, "BTN Concentration (cells/m^3)", "BTN Concentration", cbar_ax=axd['B_cbar'], cmap='Purples')
         
         # Update population plots
         for i in range(len(populations)):
@@ -394,19 +394,19 @@ def create_animation(num_frames=100, interval=200, population_id=10,
 if __name__ == "__main__":
     # Create and display the animation
     fig, ani = create_animation(
-        num_frames=600,
-        interval=6000,
-        population_id=11,
+        num_frames=6,
+        interval=60,
+        population_id=5,
         dt=0.1,
-        projection_loops=30, 
+        projection_loops=50, 
         overrelaxation=1.5,
-        drug_drop=(22, 39),
-        drug_drop_frame=100
+        drug_drop=(50, 30),
+        drug_drop_frame=160
     )
    
     ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=5, dpi=150)
     plt.close(fig)
-
+""" 
     fig2, ani2 = create_animation(
             num_frames=600,
             interval=6000,
@@ -462,7 +462,7 @@ if __name__ == "__main__":
         )
     
     ani5.save('clam_disease_animation5.mp4', writer='ffmpeg', fps=5, dpi=150)
-    plt.close(fig5)
+    plt.close(fig5) """
 
     
 

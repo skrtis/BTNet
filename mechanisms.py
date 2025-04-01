@@ -580,9 +580,9 @@ def run_simulation(h_velocities, v_velocities, agents,
 
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
-        if iteration == 1: 
+        if iteration == 200: 
             # Initialize clam cancer at the beginning of the simulation
-            initialize_clam_cancer(agents,10)
+            initialize_clam_cancer(agents,5)
         
         if iteration == drug_drop_iteration:
             # Drop drug concentration at specified location

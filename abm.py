@@ -759,10 +759,10 @@ def visualize_everything(h_velocities, v_velocities, agents, iteration=0):
     return fig
 
 run_simulation(h_velocities, v_velocities, total_agents, 
-               num_iterations=1000, 
+               num_iterations=2000, 
                advection_loops=1, 
                projection_loops=30,
-               plot_interval=20,  # More frequent plots to better see the disease progression
+               plot_interval=50,  # More frequent plots to better see the disease progression
                overrelaxation=1.5,
                dt=0.1,
                drug_drop=(45,45),

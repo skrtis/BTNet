@@ -341,10 +341,11 @@ def update_clam_population(agents, iteration=0):
             agent.healthy_clams -= new_infections
             agent.infected_clams += new_infections
             
-            # Calculate deaths
-            new_deaths = int(agent.infected_clams * np.random.uniform(0.01, 0.05))
-            agent.infected_clams -= new_deaths
-            agent.dead_clams += new_deaths
+            # Calculate deaths (assuming death rate is 1% to 5% of infected clams per 20 timestep)
+            if iteration % 2 == 0:
+                new_deaths = int(agent.infected_clams * np.random.uniform(0.01, 0.05))
+                agent.infected_clams -= new_deaths
+                agent.dead_clams += new_deaths
             
             # Dynamic K_d: concentration per cell at which the drug is 50% effective
             K_d = agent.infected_clams*(0.11)/ 1250000  # equivalent to agent.infected_clams * concentration each clam needs (quarter pounders) and volume of area (1/1250000)
