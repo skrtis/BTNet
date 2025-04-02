@@ -56,6 +56,7 @@ def init_data_storage():
         f"population{i+1}": {
             "time": [],
             "healthy": [],
+            "latent": [],  # Add latent data field
             "infected": [],
             "dead": []
         } for i in range(len(populations))
@@ -117,13 +118,14 @@ def plot_concentration(ax, agents, concentration_attr="concentration", title="Co
     ax.grid(False)
     ax.tick_params(labelsize=7)
 
-def plot_population_data(ax, pop_name, time_data, healthy_data, infected_data, dead_data):
+def plot_population_data(ax, pop_name, time_data, healthy_data, infected_data, dead_data, latent_data):
     """Plot population data on a given axis"""
     ax.clear()
     ax.set_title(f"{pop_name}", fontsize=8)
     
     # Plot the data
     ax.plot(time_data, healthy_data, 'g-', label='Healthy', linewidth=1)
+    ax.plot(time_data, latent_data, 'y-', label='Latent', linewidth=1)  # Add latent clams
     ax.plot(time_data, infected_data, 'r-', label='Infected', linewidth=1)
     ax.plot(time_data, dead_data, 'k-', label='Dead', linewidth=1)
     
@@ -183,7 +185,7 @@ def create_visualization_layout(population_id=10):
     
     # Plot concentration data with specific colormaps
     plot_concentration(axd['C'], agents, "concentration", "Drug Concentration (mg/m^3)", cbar_ax=axd['C_cbar'], cmap='viridis')
-    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration (cells/m^3)", cbar_ax=axd['B_cbar'], cmap='Purples')
+    plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration (cells/m^3)", cbar_ax=axd['B_cbar'], cmap='cividis')
     
     # Initialize data storage for population plots - empty for initial state
     population_data = init_data_storage()
@@ -309,6 +311,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
         pop_name = f"population{i+1}"
         population_stats = {
             "healthy": 0,
+            "latent": 0,  # Add latent field
             "infected": 0,
             "dead": 0
         }
@@ -319,6 +322,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
             for agent in agents:
                 if agent.row == row and agent.col == col:
                     population_stats["healthy"] += agent.healthy_clams
+                    population_stats["latent"] += agent.latent_clams  # Add latent clams
                     population_stats["infected"] += agent.infected_clams
                     population_stats["dead"] += agent.dead_clams
                     break
@@ -326,23 +330,25 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
         # Update the population data
         population_data[pop_name]["time"].append(frame_num)
         population_data[pop_name]["healthy"].append(population_stats["healthy"])
+        population_data[pop_name]["latent"].append(population_stats["latent"])  # Add latent clams
         population_data[pop_name]["infected"].append(population_stats["infected"])
         population_data[pop_name]["dead"].append(population_stats["dead"])
     
     return agents, h_velocities, v_velocities, population_data
 
 def create_animation(
-    num_frames=1000, 
-    interval=200, 
+    num_frames=300,           # Total frames to generate in the animation
+    steps_per_frame=1,        # Number of simulation steps per frame
+    interval=200,             # Delay between frames when viewing (ms)
     population_id=10,
-    population_id2=None,  # Made explicit, with None as default
+    population_id2=None,
     dt=1e3, 
     projection_loops=10, 
     overrelaxation=1.5,
     drug_drop=(50, 35), 
     drug_drop_frame=50,
-    drug_concentration=40,  # New parameter with default value
-    btn_zero_frame=30  # New parameter for when disease outbreak occurs
+    drug_concentration=40,
+    btn_zero_frame=30
 ):
     """
     Create an animation of the clam disease simulation
@@ -350,7 +356,9 @@ def create_animation(
     Parameters:
     -----------
     num_frames : int
-        Total number of frames to generate
+        Total number of frames to generate in the final animation
+    steps_per_frame : int
+        Number of simulation steps to run per visual frame
     interval : int
         Interval between frames in milliseconds
     population_id : int
@@ -366,11 +374,11 @@ def create_animation(
     drug_drop : tuple(int, int) or None
         (row, col) position to add drug concentration, or None to skip drug drop
     drug_drop_frame : int
-        Frame number at which to drop the concentration
+        Frame number at which to drop the concentration (in simulation steps)
     drug_concentration : float
         Amount of drug concentration to add at drug_drop position
     btn_zero_frame : int
-        Frame number at which to initialize BTN disease (patient zero)
+        Frame number at which to initialize BTN disease (in simulation steps)
         
     Returns:
     --------
@@ -382,53 +390,68 @@ def create_animation(
     # Set up the visualization layout
     fig, axd, agents, h_velocities, v_velocities, population_data = create_visualization_layout(population_id)
     
+    # Keep track of total simulation steps
+    total_steps = num_frames * steps_per_frame
+    
     # Define the update function for animation
     def update_frame(frame_num):
-        print(f"Processing frame {frame_num}")
+        # Calculate the simulation step range for this frame
+        start_step = frame_num * steps_per_frame
+        end_step = start_step + steps_per_frame
+        
+        print(f"Processing frame {frame_num} (simulation steps {start_step} to {end_step-1})")
         
         # Update simulation state
         nonlocal agents, h_velocities, v_velocities, population_data
         
-        # Pass all parameters to update_simulation
-        agents, h_velocities, v_velocities, population_data = update_simulation(
-            agents, 
-            h_velocities, 
-            v_velocities, 
-            population_data, 
-            frame_num,
-            dt=dt, 
-            projection_loops=projection_loops, 
-            overrelaxation=overrelaxation, 
-            drug_drop=drug_drop, 
-            drug_concentration=drug_concentration,
-            drug_drop_frame=drug_drop_frame,
-            population_id=population_id,
-            population_id2=population_id2,
-            btn_zero_frame=btn_zero_frame  # Pass the new parameter
-        )
+        # Run multiple simulation steps for each frame
+        for step in range(start_step, end_step):
+            # Pass all parameters to update_simulation
+            agents, h_velocities, v_velocities, population_data = update_simulation(
+                agents, 
+                h_velocities, 
+                v_velocities, 
+                population_data, 
+                step,  # Use actual simulation step number
+                dt=dt, 
+                projection_loops=projection_loops, 
+                overrelaxation=overrelaxation, 
+                drug_drop=drug_drop, 
+                drug_concentration=drug_concentration,
+                drug_drop_frame=drug_drop_frame,
+                population_id=population_id,
+                population_id2=population_id2,
+                btn_zero_frame=btn_zero_frame
+            )
         
         # Update concentration plots with dedicated colorbar axes and specific colormaps
         plot_concentration(axd['C'], agents, "concentration", "Drug Concentration (mg/m^3)", cbar_ax=axd['C_cbar'], cmap='viridis')
-        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration (mg/m^3)", cbar_ax=axd['B_cbar'], cmap='Purples')
+        plot_concentration(axd['B'], agents, "btn_concentration", "BTN Concentration (cells/m^3)", cbar_ax=axd['B_cbar'], cmap='cividis')
         
         # Update population plots
         for i in range(len(populations)):
             pop_name = f"population{i+1}"
+            
+            # Get population data (keeping all history for line plots)
             plot_population_data(
                 axd[str(i+1)], 
                 f"Population {i+1}",
                 population_data[pop_name]["time"],
                 population_data[pop_name]["healthy"],
                 population_data[pop_name]["infected"],
-                population_data[pop_name]["dead"]
+                population_data[pop_name]["dead"],
+                population_data[pop_name]["latent"]
             )
         
-        # Adjust layout (might be needed for smooth animation)
+        # Update figure title to show current simulation step
+        fig.suptitle(f"Clam Disease Simulation - Pop {population_id} - Step {end_step-1}", fontsize=16)
+        
+        # Adjust layout
         fig.tight_layout()
         
-    # Create the animation
+    # Create the animation with modified frame count
     ani = animation.FuncAnimation(
-        fig, update_frame, frames=num_frames, 
+        fig, update_frame, frames=num_frames,
         interval=interval, blit=False, repeat=False
     )
     
@@ -440,7 +463,7 @@ if __name__ == "__main__":
     output_dir.mkdir(exist_ok=True)
     
     # List of populations to test as single infection sources
-    test_populations = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
+    test_populations = [10]
     
     # Define scenarios - one for each population, no drug treatment
     scenarios = []
@@ -450,7 +473,7 @@ if __name__ == "__main__":
             "name": f"pop{pop_id}_only",
             "population_id": pop_id,
             "population_id2": None,  # No secondary infection
-            "btn_zero_frame": 10,    # Start disease early
+            "btn_zero_frame": 1,    # Start disease early
             "drug_drop": None,       # No drug treatment
             "drug_drop_frame": 9999, # Never happens
             "drug_concentration": 0  # No drug
@@ -458,10 +481,12 @@ if __name__ == "__main__":
     
     # Common parameters for all simulations
     common_params = {
-        "num_frames": 35,      # Extended simulation time to see full disease spread
-        "interval": 3500,
+        "num_frames": 100,       # 150 frames in final animation
+        "steps_per_frame": 5,    # Run 5 simulation steps per frame
+                                 # Total simulation steps = 150 × 3 = 450
+        "interval": 200,
         "dt": 350,
-        "projection_loops": 50,
+        "projection_loops": 20,
         "overrelaxation": 1.5
     }
     
@@ -486,6 +511,7 @@ if __name__ == "__main__":
         print(f"Completed scenario: {scenario['name']}")
     
     print("\nAll animations completed!")
+
 
 
 

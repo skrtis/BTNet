@@ -100,8 +100,9 @@ def create_grid_agents(transformed_data, complete_grid=True, grid_width=62, grid
             agent.clam_presence = clam_presence  # Set clam presence from GeoJSON
             if agent.clam_presence == True:
                 agent.btn_concentration = 0.0
-                agent.healthy_clams = 2500
+                agent.healthy_clams = 1250000 
                 agent.infected_clams = 0
+                agent.latent_clams = 0
                 agent.dead_clams = 0
 
             agent.water = True  # All these cells are water

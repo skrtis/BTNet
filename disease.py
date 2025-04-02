@@ -330,25 +330,36 @@ def update_clam_population(agents, iteration=0):
     for agent in agents:
         if agent.clam_presence == True:
             # Calculate new infections
-            F = 0.0455*5 #liters per 5 mins
+            F = 0.0524 #m^3 per day
             cells_per_clam = F*agent.btn_concentration
-            infection_probability = 1 - np.exp(-cells_per_clam)
-            
+            # Log-logistic parameters
+            D50 = 1000   # dose at which infection probability is 0.5 (ID50, in BTN cells per clam)
+            beta = 1.0   # shape parameter; adjust to control steepness of the curve
+
+            # Calculate infection probability using the log-logistic function
+            # This formulation is equivalent to: 1 / (1 + (D50/cells_per_clam)**beta)
+            infection_probability = 1 / (1 + np.exp(-beta * (np.log(cells_per_clam) - np.log(D50))))
+
             # Number of newly infected clams
             new_infections = int(agent.healthy_clams * infection_probability)
 
             # Update populations
             agent.healthy_clams -= new_infections
-            agent.infected_clams += new_infections
-            
+            agent.latent_clams += new_infections
+
+            # transition some from latent to infected
+            transition_prob = 0.01
+            num_transitioned = int(agent.latent_clams * transition_prob)
+            agent.latent_clams -= num_transitioned
+            agent.infected_clams += num_transitioned
+
             # Calculate deaths (assuming death rate is 1% to 5% of infected clams per 20 timestep)
-            if iteration % 2 == 0:
-                new_deaths = int(agent.infected_clams * np.random.uniform(0.01, 0.05))
-                agent.infected_clams -= new_deaths
-                agent.dead_clams += new_deaths
+            new_deaths = int(agent.infected_clams * np.random.uniform(0.01, 0.05))
+            agent.infected_clams -= new_deaths
+            agent.dead_clams += new_deaths
             
             # Dynamic K_d: concentration per cell at which the drug is 50% effective
-            K_d = agent.infected_clams*(0.11)/ 1250000  # equivalent to agent.infected_clams * concentration each clam needs (quarter pounders) and volume of area (1/1250000)
+            K_d = (agent.latent_clams+agent.infected_clams)*(0.11)/ 1250000  # equivalent to agent.infected_clams * concentration each clam needs (quarter pounders) and volume of area (1/1250000)
 
             # Calculate drug effect (a value between 0 and 1)
             if K_d>0:
@@ -363,40 +374,72 @@ def update_clam_population(agents, iteration=0):
             recovery_prob = drug_effect * max_recovery_rate
 
             # Determine the number of recovered clams stochastically
-            recovered = np.random.binomial(agent.infected_clams, recovery_prob)
-            agent.infected_clams -= recovered
-            agent.healthy_clams += recovered
+            recovered_infected = np.random.binomial(agent.infected_clams, recovery_prob)
+            agent.infected_clams -= recovered_infected
+            recovered = np.random.binomial(agent.latent_clams, recovery_prob)
+            agent.latent_clams -= recovered
+            agent.healthy_clams += recovered_infected + recovered
 
             # Remove some of the drug concentration based on how much was "used"
             agent.concentration -= drug_effect * 0.001
             agent.concentration = max(agent.concentration, 0)  # ensure concentration doesn't go negative
             
             # Update BTN release based on current infected population
-            agent.btn_concentration += (agent.infected_clams * 100) / 1250000 
+            agent.btn_concentration += (agent.infected_clams * 100) / 1250000 # n/v = c
         
 
     return agents
 
-def initialize_clam_cancer(agents, population_id,population_id2):
+def initialize_clam_cancer(agents, population_id, population_id2=None):
+    """
+    Initialize BTN disease in specified clam population(s)
+    
+    Parameters:
+    -----------
+    agents : list
+        List of agent objects
+    population_id : int
+        Primary population ID to infect (1-based index)
+    population_id2 : int or None
+        Optional second population ID to infect
+    
+    Returns:
+    --------
+    agents : list
+        Updated list of agents
+    """
+    print(f"Initializing BTN disease in population {population_id}" + 
+          (f" and {population_id2}" if population_id2 is not None else ""))
+    
+    # First set a very small background concentration in all water cells
     for agent in agents: 
         if agent.water == True or agent.clam_presence == True:
             agent.btn_concentration = 1e-5
 
-        for clams in populations[population_id-1]:
-            if agent.row == clams[0] and agent.col == clams[1]:
-                agent.infected_clams = 2500 
-                agent.healthy_clams = 0
-                agent.dead_clams = 0
-                # Set initial BTN concentration based on infected clams
-                agent.btn_concentration = (agent.infected_clams * 100)/1250000
+    # Infect primary population
+    if 1 <= population_id <= len(populations):
+        for agent in agents:
+            for clams in populations[population_id-1]:
+                if agent.row == clams[0] and agent.col == clams[1]:
+                    agent.infected_clams = 250000
+                    agent.healthy_clams = 500000
+                    agent.dead_clams = 0
+                    agent.latent_clams = 500000
+                    # Set initial BTN concentration based on infected clams
+                    agent.btn_concentration = (agent.infected_clams * 100)/1250000
 
-        for clams in populations[population_id2-1]:
-            if agent.row == clams[0] and agent.col == clams[1]:
-                agent.infected_clams = 2500 
-                agent.healthy_clams = 0
-                agent.dead_clams = 0
-                # Set initial BTN concentration based on infected clams
-                agent.btn_concentration = (agent.infected_clams * 100)/1250000 
+    # Infect secondary population if specified
+    if population_id2 is not None and 1 <= population_id2 <= len(populations):
+        for agent in agents:
+            for clams in populations[population_id2-1]:
+                if agent.row == clams[0] and agent.col == clams[1]:
+                    agent.infected_clams = 250000
+                    agent.healthy_clams = 500000
+                    agent.dead_clams = 0
+                    agent.latent_clams = 500000
+                    # Set initial BTN concentration based on infected clams
+                    agent.btn_concentration = (agent.infected_clams * 100)/1250000
+                    
     return agents
 
 
