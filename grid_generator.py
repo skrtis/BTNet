@@ -252,7 +252,7 @@ def assign_edge_velocities(agents):
     print(f"Source injection vector: ({inj_vx:.2f}, {inj_vy:.2f}) with bearing {bearing_degrees}°")
 
     bearing_degrees_two = 110 
-    magnitude_two = 0.0032
+    magnitude_two =0.0032
     br2 = math.radians(360 - bearing_degrees_two)
     inj_vx2 = magnitude_two * math.cos(br2)
     inj_vy2 = magnitude_two * math.sin(br2)

@@ -101,7 +101,7 @@ def visualize_collocated(h_velocities, v_velocities, agents, iteration=0):
             center_y = row + 0.5
             
             # Scale factor for specific vector visibility
-            scale = 1e2
+            scale =1e3
             
             # Plot the arrow
             ax.arrow(center_x, center_y, vx * scale, vy * scale,
@@ -688,7 +688,7 @@ def visualize_everything(h_velocities, v_velocities, agents, iteration=0):
             center_y = row + 0.5
             
             # Scale for visibility
-            scale = 1.5
+            scale = 1e2
             
             ax_flow.arrow(center_x, center_y, vx * scale, vy * scale,
                       head_width=0.1, head_length=0.05, fc='blue', ec='blue',
@@ -759,16 +759,16 @@ def visualize_everything(h_velocities, v_velocities, agents, iteration=0):
     return fig
 
 run_simulation(h_velocities, v_velocities, total_agents, 
-               num_iterations=2000, 
+               num_iterations=1000, 
                advection_loops=1, 
                projection_loops=30,
                plot_interval=50,  # More frequent plots to better see the disease progression
                overrelaxation=1.5,
-               dt=0.1,
+               dt=350,
                drug_drop=(45,45),
                drug_concentration=10,
                drug_drop_iteration=5,
-               visualize_fn=visualize_everything,  # Use our new visualization function
+               visualize_fn=visualize_collocated,  # Use our new visualization function
                save_plots=True,
                output_dir="./output")
 

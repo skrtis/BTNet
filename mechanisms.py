@@ -28,7 +28,7 @@ def wind(agents):
     #randomized wind direction
     wind_dir = np.random.choice(["N", "S", "E", "W"])
     for agent in agents: 
-        wind_speed =  np.random.uniform(0.00001,0.00005)
+        wind_speed = np.random.uniform(0.00001,0.00005)
         if wind_dir == "N":
             agent.velocity_n["vy"] += wind_speed
         elif wind_dir == "S":
@@ -580,9 +580,9 @@ def run_simulation(h_velocities, v_velocities, agents,
 
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
-        if iteration == 200: 
+        if iteration == 10: 
             # Initialize clam cancer at the beginning of the simulation
-            initialize_clam_cancer(agents,5)
+            initialize_clam_cancer(agents,5,13)
         
         if iteration == drug_drop_iteration:
             # Drop drug concentration at specified location
@@ -642,7 +642,7 @@ def run_simulation(h_velocities, v_velocities, agents,
         print(f"Iteration {iteration}: Max Velocity: {max_velocity:.4f}, Min Velocity: {min_velocity:.8f}, Avg Velocity: {avg_velocity:.8f}")
 
         # Apply global dampening if average velocity exceeds threshold
-        threshold = 0.0006
+        threshold =  0.0006
         target_avg = 0.0003
         h_velocities, v_velocities = apply_progressive_dampening(h_velocities, v_velocities, agents, 
                                                                avg_velocity, threshold, target_avg)

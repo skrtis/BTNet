@@ -198,7 +198,8 @@ def create_visualization_layout(population_id=10):
 
 def update_simulation(agents, h_velocities, v_velocities, population_data, frame_num, 
                      dt=0.1, projection_loops=10, overrelaxation=1.5, 
-                     drug_drop=None, drug_concentration=5, drug_drop_frame=50,population_id=5,population_id2 = 13):
+                     drug_drop=None, drug_concentration=5, drug_drop_frame=50,
+                     population_id=5, population_id2=None, btn_zero_frame=30):
     """
     Update the simulation state for a single frame of animation.
     
@@ -224,21 +225,30 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
         Concentration value to drop
     drug_drop_frame : int
         Frame number at which to drop the concentration
+    population_id : int
+        ID of the primary population to initialize disease in
+    population_id2 : int or None
+        ID of the secondary population to initialize disease in (if any)
+    btn_zero_frame : int
+        Frame number at which to initialize the disease
         
     Returns:
     --------
     agents, h_velocities, v_velocities, population_data
         Updated simulation state
     """
+    # Initialize clam cancer if this is the right frame
+    if frame_num == btn_zero_frame:
+        print(f"Initializing BTN patient zero at frame {frame_num} in population {population_id}" +
+              (f" and {population_id2}" if population_id2 is not None else ""))
+        initialize_clam_cancer(agents, population_id=population_id, population_id2=population_id2)
+
     # Drop drug concentration if this is the right frame
-    if frame_num == 30:
-        initialize_clam_cancer(agents, population_id=population_id,population_id2=population_id2 )
-
-
     if drug_drop and frame_num == drug_drop_frame:
-        print(f"Dropping BTN concentration at frame {frame_num} at position {drug_drop}")
+        print(f"Dropping drug concentration at frame {frame_num} at position {drug_drop}")
         agents = drop_concentration(agents, drug_concentration, drug_drop[0], drug_drop[1])
     
+    # Rest of the function remains the same...
     # Update wind velocities
     agents = wind(agents)
     
@@ -321,9 +331,19 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     
     return agents, h_velocities, v_velocities, population_data
 
-def create_animation(num_frames=100, interval=200, population_id=10, 
-                   dt=0.1, projection_loops=10, overrelaxation=1.5,
-                   drug_drop=(50, 35), drug_drop_frame=50,population_id2 = 13):
+def create_animation(
+    num_frames=1000, 
+    interval=200, 
+    population_id=10,
+    population_id2=None,  # Made explicit, with None as default
+    dt=1e3, 
+    projection_loops=10, 
+    overrelaxation=1.5,
+    drug_drop=(50, 35), 
+    drug_drop_frame=50,
+    drug_concentration=40,  # New parameter with default value
+    btn_zero_frame=30  # New parameter for when disease outbreak occurs
+):
     """
     Create an animation of the clam disease simulation
     
@@ -334,20 +354,28 @@ def create_animation(num_frames=100, interval=200, population_id=10,
     interval : int
         Interval between frames in milliseconds
     population_id : int
-        ID of the population to initialize with disease
+        ID of the primary population to initialize with disease
+    population_id2 : int or None
+        ID of the secondary population to initialize with disease (if any)
     dt : float
         Timestep for advection
     projection_loops : int
         Number of projection iterations per step
     overrelaxation : float
         Overrelaxation parameter for pressure projection
-    drug_drop : tuple(int, int)
-        (row, col) position to add drug concentration
+    drug_drop : tuple(int, int) or None
+        (row, col) position to add drug concentration, or None to skip drug drop
     drug_drop_frame : int
         Frame number at which to drop the concentration
+    drug_concentration : float
+        Amount of drug concentration to add at drug_drop position
+    btn_zero_frame : int
+        Frame number at which to initialize BTN disease (patient zero)
         
     Returns:
     --------
+    fig : matplotlib.figure.Figure
+        The figure object containing the animation
     ani : matplotlib.animation.FuncAnimation
         Animation object
     """
@@ -360,10 +388,24 @@ def create_animation(num_frames=100, interval=200, population_id=10,
         
         # Update simulation state
         nonlocal agents, h_velocities, v_velocities, population_data
+        
+        # Pass all parameters to update_simulation
         agents, h_velocities, v_velocities, population_data = update_simulation(
-            agents, h_velocities, v_velocities, population_data, frame_num,
-            dt, projection_loops, overrelaxation, drug_drop, 40, drug_drop_frame
-        ,population_id=population_id,population_id2=population_id2)
+            agents, 
+            h_velocities, 
+            v_velocities, 
+            population_data, 
+            frame_num,
+            dt=dt, 
+            projection_loops=projection_loops, 
+            overrelaxation=overrelaxation, 
+            drug_drop=drug_drop, 
+            drug_concentration=drug_concentration,
+            drug_drop_frame=drug_drop_frame,
+            population_id=population_id,
+            population_id2=population_id2,
+            btn_zero_frame=btn_zero_frame  # Pass the new parameter
+        )
         
         # Update concentration plots with dedicated colorbar axes and specific colormaps
         plot_concentration(axd['C'], agents, "concentration", "Drug Concentration (mg/m^3)", cbar_ax=axd['C_cbar'], cmap='viridis')
@@ -384,9 +426,6 @@ def create_animation(num_frames=100, interval=200, population_id=10,
         # Adjust layout (might be needed for smooth animation)
         fig.tight_layout()
         
-        # Return the updated artists if needed
-        # For now, we're using blit=False so no need to return
-        
     # Create the animation
     ani = animation.FuncAnimation(
         fig, update_frame, frames=num_frames, 
@@ -396,20 +435,52 @@ def create_animation(num_frames=100, interval=200, population_id=10,
     return fig, ani
 
 if __name__ == "__main__":
-    # Create and display the animation
-    fig, ani = create_animation(
-        num_frames=500,
-        interval=5000,
-        population_id=5,
-        dt=0.1,
-        projection_loops=50, 
-        overrelaxation=1.5,
-        drug_drop=(50, 30),
-        drug_drop_frame=120,
-        population_id2=13)
-   
-    ani.save('clam_disease_animation.mp4', writer='ffmpeg', fps=5, dpi=150)
-    plt.close(fig)
+    # Create output directory for animations
+    output_dir = Path("output_animations")
+    output_dir.mkdir(exist_ok=True)
+    
+    # Define scenarios with different parameters
+    scenarios = [
+        {
+            "name": "baseline",
+            "population_id": 5,
+            "population_id2": 13,
+            "btn_zero_frame": 30,
+            "drug_drop": (50, 30),
+            "drug_drop_frame": 120,
+            "drug_concentration": 40
+        }
+    ]
+    
+    # Common parameters for all simulations
+    common_params = {
+        "num_frames": 500,
+        "interval": 5000,
+        "dt": 400,
+        "projection_loops": 50,
+        "overrelaxation": 1.5
+    }
+    
+    # Run each scenario
+    for i, scenario in enumerate(scenarios):
+        print(f"\n===== Running scenario {i+1}/{len(scenarios)}: {scenario['name']} =====")
+        
+        # Combine common parameters with scenario-specific ones
+        params = common_params.copy()
+        params.update({k: v for k, v in scenario.items() if k != "name"})
+        
+        # Create and save the animation
+        fig, ani = create_animation(**params)
+        
+        output_file = output_dir / f"clam_disease_{scenario['name']}.mp4"
+        print(f"Saving animation to {output_file}")
+        ani.save(str(output_file), writer='ffmpeg', fps=5, dpi=150)
+        
+        # Clean up to free memory
+        plt.close(fig)
+        print(f"Completed scenario: {scenario['name']}")
+    
+    print("\nAll animations completed!")
 
 
 
