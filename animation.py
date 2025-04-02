@@ -439,67 +439,26 @@ if __name__ == "__main__":
     output_dir = Path("output_animations")
     output_dir.mkdir(exist_ok=True)
     
-    # Define scenarios with different parameters
-    scenarios = [
-        {
-            "name": "baseline",
-            "population_id": 5,
-            "population_id2": 13,
-            "btn_zero_frame": 10,
-            "drug_drop": (50, 30),
-            "drug_drop_frame": 120,
-            "drug_concentration": 40
-        },
-        {
-            "name": "early_treatment",
-            "population_id": 5,
-            "population_id2": 13,
-            "btn_zero_frame": 10,
-            "drug_drop": (50, 30),
-            "drug_drop_frame": 50,  # Earlier drug application
-            "drug_concentration": 60  # Higher drug concentration
-        },
-        {
-            "name": "multiple_sources",
-            "population_id": 5,
-            "population_id2": 20,  # Additional source of infection
-            "btn_zero_frame": 10,
-            "drug_drop": (50, 30),
-            "drug_drop_frame": 120,
-            "drug_concentration": 40
-        },
-        {
-            "name": "targeted_treatment",
-            "population_id": 5,
-            "population_id2": 9,
-            "btn_zero_frame": 10,
-            "drug_drop": (25,40),  # Dropping medicine directly at an infected site (population19)
-            "drug_drop_frame": 100,
-            "drug_concentration": 60
-        },
-        {
-            "name": "high_concentration",
-            "population_id": 5,
-            "population_id2": 12,
-            "btn_zero_frame": 10,
-            "drug_drop": (45,30),
-            "drug_drop_frame": 120,
-            "drug_concentration": 100  # Very high drug concentration
-        },
-        {
-            "name": "no_treatment",
-            "population_id": 5,
-            "population_id2": None,
-            "btn_zero_frame": 10,
-            "drug_drop": (45,30),  # No drug treatment
-            "drug_drop_frame": 3500,  # Never happens
-            "drug_concentration": 0
-        }
-    ]
+    # List of populations to test as single infection sources
+    test_populations = [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]
+    
+    # Define scenarios - one for each population, no drug treatment
+    scenarios = []
+    
+    for pop_id in test_populations:
+        scenarios.append({
+            "name": f"pop{pop_id}_only",
+            "population_id": pop_id,
+            "population_id2": None,  # No secondary infection
+            "btn_zero_frame": 10,    # Start disease early
+            "drug_drop": None,       # No drug treatment
+            "drug_drop_frame": 9999, # Never happens
+            "drug_concentration": 0  # No drug
+        })
     
     # Common parameters for all simulations
     common_params = {
-        "num_frames": 350,
+        "num_frames": 35,      # Extended simulation time to see full disease spread
         "interval": 3500,
         "dt": 350,
         "projection_loops": 50,
@@ -509,6 +468,7 @@ if __name__ == "__main__":
     # Run each scenario
     for i, scenario in enumerate(scenarios):
         print(f"\n===== Running scenario {i+1}/{len(scenarios)}: {scenario['name']} =====")
+        print(f"Testing initial infection in population {scenario['population_id']}")
         
         # Combine common parameters with scenario-specific ones
         params = common_params.copy()
@@ -517,7 +477,7 @@ if __name__ == "__main__":
         # Create and save the animation
         fig, ani = create_animation(**params)
         
-        output_file = output_dir / f"clam_disease_{scenario['name']}.mp4"
+        output_file = output_dir / f"no_drug_initial_{scenario['population_id']}.mp4"
         print(f"Saving animation to {output_file}")
         ani.save(str(output_file), writer='ffmpeg', fps=5, dpi=150)
         
