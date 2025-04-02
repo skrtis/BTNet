@@ -153,7 +153,7 @@ def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
         c_interp = c0 * (1 - y_frac) + c1 * y_frac
         
         # Store the new concentration value (change stickiness with blending)
-        blend = 0.3 
+        blend = 1
         new_concentrations[agent] = ((1-blend)*agent.concentration) + blend*c_interp
     
     # Update all agent concentration values

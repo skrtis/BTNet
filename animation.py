@@ -445,18 +445,63 @@ if __name__ == "__main__":
             "name": "baseline",
             "population_id": 5,
             "population_id2": 13,
-            "btn_zero_frame": 30,
+            "btn_zero_frame": 10,
             "drug_drop": (50, 30),
             "drug_drop_frame": 120,
             "drug_concentration": 40
+        },
+        {
+            "name": "early_treatment",
+            "population_id": 5,
+            "population_id2": 13,
+            "btn_zero_frame": 10,
+            "drug_drop": (50, 30),
+            "drug_drop_frame": 50,  # Earlier drug application
+            "drug_concentration": 60  # Higher drug concentration
+        },
+        {
+            "name": "multiple_sources",
+            "population_id": 5,
+            "population_id2": 20,  # Additional source of infection
+            "btn_zero_frame": 10,
+            "drug_drop": (50, 30),
+            "drug_drop_frame": 120,
+            "drug_concentration": 40
+        },
+        {
+            "name": "targeted_treatment",
+            "population_id": 5,
+            "population_id2": 9,
+            "btn_zero_frame": 10,
+            "drug_drop": (25,40),  # Dropping medicine directly at an infected site (population19)
+            "drug_drop_frame": 100,
+            "drug_concentration": 60
+        },
+        {
+            "name": "high_concentration",
+            "population_id": 5,
+            "population_id2": 12,
+            "btn_zero_frame": 10,
+            "drug_drop": (45,30),
+            "drug_drop_frame": 120,
+            "drug_concentration": 100  # Very high drug concentration
+        },
+        {
+            "name": "no_treatment",
+            "population_id": 5,
+            "population_id2": None,
+            "btn_zero_frame": 10,
+            "drug_drop": (45,30),  # No drug treatment
+            "drug_drop_frame": 3500,  # Never happens
+            "drug_concentration": 0
         }
     ]
     
     # Common parameters for all simulations
     common_params = {
-        "num_frames": 500,
-        "interval": 5000,
-        "dt": 400,
+        "num_frames": 350,
+        "interval": 3500,
+        "dt": 350,
         "projection_loops": 50,
         "overrelaxation": 1.5
     }
