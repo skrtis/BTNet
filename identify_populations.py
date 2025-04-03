@@ -3,6 +3,11 @@ from collections import deque
 import os
 import random
 import matplotlib.pyplot as plt
+from disease import populations
+
+for v,i in enumerate(populations):
+    # print population number
+    print(f"Population {v+1}: {len(i)*4} clams")
 
 def identify_populations(agents):
     """
@@ -201,6 +206,8 @@ def main():
     """Main function to demonstrate population identification."""
     from grid_generator import extract_grid_indices, transform_indices, create_grid_agents
     
+    for i in populations:
+        print(f"Population {i}: {len(populations[i])} clams")
     # Load grid data
     grid_data = extract_grid_indices("malpeque_tiles.geojson")
     transformed_data = transform_indices(grid_data)
@@ -225,7 +232,9 @@ def main():
     print(f"Found {stats['total_populations']} populations with {stats['total_clams']} total clams")
     print(f"Largest population: {stats['largest_population']} with {stats['population_sizes'][stats['largest_population']]} clams")
     print(f"Smallest population: {stats['smallest_population']} with {stats['population_sizes'][stats['smallest_population']]} clams")
-    
+
+    print([len(p) for p in populations])
+
     # Visualize populations
     visualize_populations(agents, populations)
 

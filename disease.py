@@ -8,9 +8,9 @@ import time
 #All disease mechanisms are stored here.
 
 # concentration dropper, drops a concentration at a defined location
-def drop_concentration(agents, concentration, row, column):
+def drop_concentration(agents, concentration, locations):
     """
-    Drop a concentration at a specific location on the grid.
+    Drop a concentration at multiple specific locations on the grid.
     
     Parameters:
     -----------
@@ -18,23 +18,51 @@ def drop_concentration(agents, concentration, row, column):
         List of FlowPolygonAgent objects
     concentration : float
         Concentration value to drop
-    row : int
-        Row index for dropping the concentration
-    column : int
-        Column index for dropping the concentration
+    locations : list of tuples or tuple
+        List of (row, col) positions for dropping the concentration
+        Can also accept a single (row, col) tuple for backward compatibility
         
     Returns:
     --------
     agents : list
         Updated list of agents with new concentration values
     """
-    # Find the agent at the specified location and update its concentration
+    # Convert single location to list for uniform processing
+    if isinstance(locations, tuple) and len(locations) == 2:
+        locations = [locations]
+    elif locations is None:
+        return agents  # No locations provided
+    
+    # Track which locations were actually found in the grid
+    found_locations = []
+    
+    # Process each drop location
+    for location in locations:
+        # Skip empty or invalid locations
+        if not location or len(location) != 2:
+            continue
+            
+        row, col = location
+        
+        # Find the agent at the specified location and update its concentration
+        for agent in agents:
+            if agent.row == row and agent.col == col:
+                agent.concentration += concentration
+                found_locations.append((row, col))
+                break
+    
+    # Add a very small amount to all water cells to avoid zero-concentration cells
+    # which might get excluded in the advection process
     for agent in agents:
-        if agent.row == row and agent.col == column:
-            agent.concentration += concentration
-        # else, give every water agent a random concentration between 0 and 0.01
-        elif agent.water==True:
+        if agent.water == True:
             agent.concentration += 1e-7
+    
+    # Report the locations where concentration was dropped
+    if found_locations:
+        print(f"Dropped concentration {concentration} at locations: {found_locations}")
+    else:
+        print("Warning: No valid drop locations were found in the grid")
+        
     return agents
 
 def advect_concentrations(agents, h_velocities, v_velocities, dt=0.5):
@@ -333,7 +361,7 @@ def update_clam_population(agents, iteration=0):
             F = 0.0524 #m^3 per day
             cells_per_clam = F*agent.btn_concentration
             # Log-logistic parameters
-            D50 = 1000   # dose at which infection probability is 0.5 (ID50, in BTN cells per clam)
+            D50 = 800   # dose at which infection probability is 0.5 (ID50, in BTN cells per clam)
             beta = 1.0   # shape parameter; adjust to control steepness of the curve
 
             # Calculate infection probability using the log-logistic function
@@ -354,7 +382,7 @@ def update_clam_population(agents, iteration=0):
             agent.infected_clams += num_transitioned
 
             # Calculate deaths (assuming death rate is 1% to 5% of infected clams per 20 timestep)
-            new_deaths = int(agent.infected_clams * np.random.uniform(0.01, 0.05))
+            new_deaths = int(agent.infected_clams * np.random.uniform(0.005, 0.01))
             agent.infected_clams -= new_deaths
             agent.dead_clams += new_deaths
             
@@ -381,7 +409,7 @@ def update_clam_population(agents, iteration=0):
             agent.healthy_clams += recovered_infected + recovered
 
             # Remove some of the drug concentration based on how much was "used"
-            agent.concentration -= drug_effect * 0.001
+            agent.concentration -= (recovered_infected+recovered)*0.11/1250000
             agent.concentration = max(agent.concentration, 0)  # ensure concentration doesn't go negative
             
             # Update BTN release based on current infected population

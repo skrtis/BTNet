@@ -762,13 +762,13 @@ run_simulation(h_velocities, v_velocities, total_agents,
                num_iterations=1000, 
                advection_loops=1, 
                projection_loops=20,
-               plot_interval=50,  # More frequent plots to better see the disease progression
+               plot_interval=10,  # More frequent plots to better see the disease progression
                overrelaxation=1.5,
                dt=350,
-               drug_drop=(35,30),
-               drug_concentration=0,
+               drug_drop=(5,45),
+               drug_concentration=100,
                drug_drop_iteration=5,
-               visualize_fn=visualize_btn,  # Use our new visualization function
+               visualize_fn=visualize_everything,  # Use our new visualization function
                save_plots=True,
                output_dir="./output")
 

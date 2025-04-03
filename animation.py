@@ -198,12 +198,12 @@ def create_visualization_layout(population_id=10):
     
     return fig, axd, agents, h_velocities, v_velocities, population_data
 
-def update_simulation(agents, h_velocities, v_velocities, population_data, frame_num, 
+def update_simulation(agents, h_velocities, v_velocities, population_data, iteration_num, 
                      dt=0.1, projection_loops=10, overrelaxation=1.5, 
-                     drug_drop=None, drug_concentration=5, drug_drop_frame=50,
+                     drug_drop=None, drug_concentration=5, drug_drop_interval=50,  # Renamed parameter
                      population_id=5, population_id2=None, btn_zero_frame=30):
     """
-    Update the simulation state for a single frame of animation.
+    Update the simulation state for a single iteration.
     
     Parameters:
     -----------
@@ -213,20 +213,21 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
         Dictionaries of horizontal and vertical velocities
     population_data : dict
         Dictionary to store population statistics over time
-    frame_num : int
-        Current frame number
+    iteration_num : int
+        Current iteration number
     dt : float
         Timestep for advection
     projection_loops : int
         Number of projection iterations per step
     overrelaxation : float
         Overrelaxation parameter for pressure projection
-    drug_drop : tuple(int, int) or None
-        (row, col) position to add drug concentration, or None to skip
+    drug_drop : list of tuples, tuple, or None
+        List of (row, col) positions to add drug concentration, or None to skip
+        Can also be a single (row, col) tuple
     drug_concentration : float
         Concentration value to drop
-    drug_drop_frame : int
-        Frame number at which to drop the concentration
+    drug_drop_interval : int
+        Number of simulation iterations between drug applications (e.g., 10 means apply every 10th step)
     population_id : int
         ID of the primary population to initialize disease in
     population_id2 : int or None
@@ -239,16 +240,16 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     agents, h_velocities, v_velocities, population_data
         Updated simulation state
     """
-    # Initialize clam cancer if this is the right frame
-    if frame_num == btn_zero_frame:
-        print(f"Initializing BTN patient zero at frame {frame_num} in population {population_id}" +
+    # Initialize clam cancer if this is the right iteration
+    if iteration_num == btn_zero_frame:
+        print(f"Initializing BTN patient zero at iteration {iteration_num} in population {population_id}" +
               (f" and {population_id2}" if population_id2 is not None else ""))
         initialize_clam_cancer(agents, population_id=population_id, population_id2=population_id2)
 
-    # Drop drug concentration if this is the right frame
-    if drug_drop and frame_num == drug_drop_frame:
-        print(f"Dropping drug concentration at frame {frame_num} at position {drug_drop}")
-        agents = drop_concentration(agents, drug_concentration, drug_drop[0], drug_drop[1])
+    # Drop drug concentration if this is the right interval
+    if drug_drop and iteration_num % drug_drop_interval == 0 and iteration_num > 0:
+        print(f"Dropping drug concentration at iteration {iteration_num}")
+        agents = drop_concentration(agents, drug_concentration, drug_drop)
     
     # Rest of the function remains the same...
     # Update wind velocities
@@ -267,7 +268,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     agents = advect_btn_concentrations(agents, h_velocities, v_velocities, dt=dt)
     
     # Update clam populations
-    agents = update_clam_population(agents,frame_num)
+    agents = update_clam_population(agents, iteration_num)
 
     #--- ----
     # Calculate velocity statistics to check if dampening is needed
@@ -300,7 +301,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
     avg_velocity = sum(velocity_magnitudes) / len(velocity_magnitudes) if velocity_magnitudes else 0
     
     # Apply dampening if needed
-    threshold = 0.0008
+    threshold = 0.001
     target_avg = 0.0005
     h_velocities, v_velocities = apply_progressive_dampening(h_velocities, v_velocities, agents,
                                                           avg_velocity, threshold, target_avg) 
@@ -328,7 +329,7 @@ def update_simulation(agents, h_velocities, v_velocities, population_data, frame
                     break
         
         # Update the population data
-        population_data[pop_name]["time"].append(frame_num)
+        population_data[pop_name]["time"].append(iteration_num)
         population_data[pop_name]["healthy"].append(population_stats["healthy"])
         population_data[pop_name]["latent"].append(population_stats["latent"])  # Add latent clams
         population_data[pop_name]["infected"].append(population_stats["infected"])
@@ -346,7 +347,7 @@ def create_animation(
     projection_loops=10, 
     overrelaxation=1.5,
     drug_drop=(50, 35), 
-    drug_drop_frame=50,
+    drug_drop_interval=50,  # Renamed from drug_drop_frame
     drug_concentration=40,
     btn_zero_frame=30
 ):
@@ -373,7 +374,7 @@ def create_animation(
         Overrelaxation parameter for pressure projection
     drug_drop : tuple(int, int) or None
         (row, col) position to add drug concentration, or None to skip drug drop
-    drug_drop_frame : int
+    drug_drop_interval : int
         Frame number at which to drop the concentration (in simulation steps)
     drug_concentration : float
         Amount of drug concentration to add at drug_drop position
@@ -418,7 +419,7 @@ def create_animation(
                 overrelaxation=overrelaxation, 
                 drug_drop=drug_drop, 
                 drug_concentration=drug_concentration,
-                drug_drop_frame=drug_drop_frame,
+                drug_drop_interval=drug_drop_interval,  # Use the renamed parameter
                 population_id=population_id,
                 population_id2=population_id2,
                 btn_zero_frame=btn_zero_frame
@@ -468,22 +469,25 @@ if __name__ == "__main__":
     # Define scenarios - one for each population, no drug treatment
     scenarios = []
     
+    # Define unique names for each scenario
     for pop_id in test_populations:
-        scenarios.append({
-            "name": f"pop{pop_id}_only",
-            "population_id": pop_id,
-            "population_id2": None,  # No secondary infection
-            "btn_zero_frame": 1,    # Start disease early
-            "drug_drop": None,       # No drug treatment
-            "drug_drop_frame": 9999, # Never happens
-            "drug_concentration": 0  # No drug
-        })
-    
+        concentrations = [0.1] 
+        
+        for conc in concentrations:
+            scenarios.append({
+                "name": f"pop{pop_id}_conc{conc}",  # Unique name per frequency
+                "population_id": pop_id,
+                "population_id2": None,
+                "btn_zero_frame": 1,
+                "drug_drop": [(54,28),(49,43),(37,47)],
+                "drug_drop_interval": 20,  # Use the frequency value directly
+                "drug_concentration": conc 
+            })
+
     # Common parameters for all simulations
     common_params = {
-        "num_frames": 100,       # 150 frames in final animation
-        "steps_per_frame": 5,    # Run 5 simulation steps per frame
-                                 # Total simulation steps = 150 × 3 = 450
+        "num_frames": 100, 
+        "steps_per_frame": 10,
         "interval": 200,
         "dt": 350,
         "projection_loops": 20,
@@ -502,7 +506,7 @@ if __name__ == "__main__":
         # Create and save the animation
         fig, ani = create_animation(**params)
         
-        output_file = output_dir / f"no_drug_initial_{scenario['population_id']}.mp4"
+        output_file = output_dir / f"{scenario['name']}.mp4"  # Use the scenario name for the file
         print(f"Saving animation to {output_file}")
         ani.save(str(output_file), writer='ffmpeg', fps=5, dpi=150)
         
@@ -511,23 +515,3 @@ if __name__ == "__main__":
         print(f"Completed scenario: {scenario['name']}")
     
     print("\nAll animations completed!")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
