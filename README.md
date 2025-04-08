@@ -1,6 +1,6 @@
 # Malpeque Disease ABM Simulation
 
-![BTNet Logo](images/BTNet_logo_dark_green.jpg)
+<img src="images/BTNet_logo_dark_green.jpg" alt="BTNet Logo" width="300">
 
 ## Overview
 
@@ -8,7 +8,7 @@ This repository contains an agent-based model (ABM) simulation for studying the 
 
 ## Demo
 
-<video src="output/demo.mp4" controls title="Malpeque Disease Simulation Demo" width="640"></video>
+
 
 ## Features
 
