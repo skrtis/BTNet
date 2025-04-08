@@ -14,8 +14,8 @@ https://github.com/user-attachments/assets/11104afe-855d-4b07-8f18-f265f1a29568
 
 ## Features
 
-- Fluid dynamics simulation with advection and projection
-- Realistic ocean current modeling
+- Fluid dynamics simulation with semi lagrangian advection and projection (Gauss Seidel Red-Black)
+- Ocean current modeling
 - Disease transmission with compartment modelling
 - Treatment intervention scenarios
 - Population health tracking and visualization
