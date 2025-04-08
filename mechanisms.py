@@ -581,13 +581,15 @@ def run_simulation(h_velocities, v_velocities, agents,
     # Main simulation loop
     for iteration in range(1, num_iterations + 1): 
         # Initialize clam cancer at the beginning of the simulation
-        if iteration ==1:
-            initialize_clam_cancer(agents,10,None)
+        if iteration == 1:
+            initialize_clam_cancer(agents, 10, None)
         
         if iteration == drug_drop_iteration:
-            # Drop drug concentration at specified location
-            agents = drop_concentration(agents, drug_concentration, drug_drop[0], drug_drop[1])
+            # Drop drug concentration at specified location(s)
+            # Pass drug_drop directly without unpacking - it now handles multiple locations
+            agents = drop_concentration(agents, drug_concentration, drug_drop)
             print(f"Dropping drug at iteration {iteration} at {drug_drop}")
+        
         # Update wind velocities
         agents = wind(agents)
         # Perform projection steps to enforce incompressibility

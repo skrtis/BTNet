@@ -765,10 +765,10 @@ run_simulation(h_velocities, v_velocities, total_agents,
                plot_interval=10,  # More frequent plots to better see the disease progression
                overrelaxation=1.5,
                dt=350,
-               drug_drop=(5,45),
+               drug_drop=[(5,45)],  # Already in correct format as a list of tuples
                drug_concentration=100,
                drug_drop_iteration=5,
-               visualize_fn=visualize_everything,  # Use our new visualization function
+               visualize_fn=visualize_flow,  # Use our new visualization function
                save_plots=True,
                output_dir="./output")
 
