@@ -7,7 +7,7 @@
 This repository contains an agent-based model (ABM) simulation for studying the spread of Malpeque disease in clam populations, including fluid dynamics, disease transmission, and treatment interventions.
 
 ## Demo
-
+https://github.com/user-attachments/assets/11104afe-855d-4b07-8f18-f265f1a29568
 
 
 ## Features
