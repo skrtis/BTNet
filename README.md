@@ -1,6 +1,8 @@
 # Malpeque Disease ABM Simulation
 
+<p align="center">
 <img src="images/BTNet_logo_dark_green.jpg" alt="BTNet Logo" width="300">
+</p>
 
 ## Overview
 
