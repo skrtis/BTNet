@@ -6,7 +6,7 @@
 
 ## Overview
 
-This repository contains an agent-based model (ABM) simulation for studying the spread of Malpeque disease in clam populations, including fluid dynamics, disease transmission, and treatment interventions.
+This repository contains an agent-based model (ABM) simulation for studying the spread of bivalve transmissible neoplasia (BTN) of clam populations in Malpeque Bay, PEI. Features include fluid dynamics, disease transmission, and treatment interventions.
 
 ## Demo
 
