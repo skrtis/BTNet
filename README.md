@@ -7,6 +7,8 @@
 ## Overview
 
 This repository contains an agent-based model (ABM) simulation for studying the spread of bivalve transmissible neoplasia (BTN) of clam populations in Malpeque Bay, PEI. Features include fluid dynamics, disease transmission, and treatment interventions.
+Read the solo report here: https://drive.google.com/file/d/1vyO6SJr6jT7d55yk80HX-34BSrDjlJyt/view?usp=sharing </br>
+Read the group report here: https://drive.google.com/file/d/1aF58qj8jrLxBrnqpu38FLws_M0md5747/view?usp=sharing </br>
 
 ## Demo
 
