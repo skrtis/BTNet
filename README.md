@@ -216,7 +216,7 @@ where *C* is the local drug concentration and *K_d* dynamically scales with the 
 |---|---|
 | <img src="images/velocity_field.png" width="380"> | <img src="images/currents.jpg" width="380"> |
 
-| Complete Grid | Simulation Output |
+| Complete Grid | Ocean Current Output |
 |---|---|
 | <img src="images/complete_grid.png" width="380"> | <img src="images/Figure_1.png" width="380"> |
 
