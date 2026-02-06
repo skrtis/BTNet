@@ -1,0 +1,6 @@
+numpy>=1.24
+matplotlib>=3.7
+shapely>=2.0
+pandas>=2.0
+geopandas>=0.13
+solara>=1.0
